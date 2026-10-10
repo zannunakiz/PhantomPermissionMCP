@@ -1,0 +1,4 @@
+# Normalise line endings to LF in the repository.
+# Windows checkouts still get CRLF via core.autocrlf=true; editors must
+# follow .editorconfig (end_of_line = lf) and prettier enforces LF output.
+* text=auto eol=lf

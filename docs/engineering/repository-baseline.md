@@ -100,3 +100,25 @@ complaints via the lint `prettier/prettier` rule (only the await warning above).
    work (Step 62), so it was intentionally left alone here.
 5. No ORM/DB, Docker, CI, env files, or MCP/REST domain code exist yet;
    architecture decisions belong to Step 02.
+
+## 7. Step 03 changes (standardised developer scripts)
+
+- `package.json`: added `engines` (`node >= 22`, `npm >= 10`),
+  `format:check` (prettier `--check`, CI-safe), `lint:check` (eslint without
+  `--fix`, CI-safe), `typecheck` (`tsc -p tsconfig.build.json --noEmit`),
+  and `validate` (runs `lint:check` → `format:check` → `typecheck` →
+  `test` → `test:e2e` → `build`). Package manager and lockfile unchanged
+  (npm, `package-lock.json` consistent — `npm ls --package-lock-only`
+  exit 0). Existing scripts kept as-is.
+- `.editorconfig` (new): UTF-8, LF, final newline, trim trailing whitespace
+  (except Markdown), 2-space indent for TS/JS/JSON. Mirrors `.prettierrc`
+  and the eslint `prettier/prettier` rule.
+- `.nvmrc` (new): `25` — documents the validated toolchain alongside the
+  `engines` floor (Node v25.9.0 / npm 11.19.1, verified this step).
+- `.gitattributes` (new): `* text=auto eol=lf` — normalises line endings to
+  LF while Windows checkouts keep CRLF via `core.autocrlf`. This resolved
+  the pre-existing mixed CRLF (TS sources) / LF (JSON) state: `npm run
+  format` rewrote the 6 TS files to LF, after which `format:check` passes.
+- No database/schema validation script: still no ORM or DB in the repo
+  (nothing to validate yet); owned by Steps 19–24.
+
