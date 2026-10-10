@@ -122,3 +122,21 @@ complaints via the lint `prettier/prettier` rule (only the await warning above).
 - No database/schema validation script: still no ORM or DB in the repo
   (nothing to validate yet); owned by Steps 19–24.
 
+
+
+## 8. Step 04 changes (runtime configuration boundary)
+
+- Deps: `@nestjs/config@4.0.4` (CJS; v12 is ESM-only and breaks Jest CJS
+  transform — downgraded deliberately, documented here) + `zod@4.6.5`.
+- New `src/config/`: `app-config.ts` (Zod schema + `loadAppConfig()` +
+  `redactConfigForLogging()` + `formatConfigError()`), `app-config.module.ts`
+  (`ConfigModule.forRoot({ validate })` + `APP_CONFIG` token),
+  `app-config.spec.ts` (5 unit tests). `AppModule` imports the config
+  module; `main.ts` validates at startup (exit 1 on failure), warns on the
+  insecure fallback pepper, and logs redacted config only.
+- `.env.example` (new): every key with placeholder values only.
+- Validated: dev boot OK (`GET / → 200`, secrets `[redacted]`);
+  `NODE_ENV=production` without secrets → exit 1 with both required-key
+  errors; production boot with real secrets prints them 0 times;
+  direct `process.env` reads confined to `src/config/` (default parameter
+  + redaction scrubber).
