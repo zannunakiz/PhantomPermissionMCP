@@ -7,12 +7,14 @@ import {
   Inject,
   Injectable,
   Optional,
+  type LoggerService,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { AppError } from './app-error';
 import type { ErrorCode } from './error-codes';
 import type { ErrorDetail, ErrorEnvelope } from './error-envelope';
 import { REQUEST_ID_HEADER, resolveRequestId } from './request-id';
+import { redactUrl } from '../logging/redact';
 
 type AppConfigLike = { nodeEnv?: string };
 
@@ -66,18 +68,23 @@ function firstString(value: unknown): string | undefined {
 }
 
 /**
- * Global REST error filter (Step 05).
+ * Global REST error filter (Step 05; Step 06 adds error logging).
  *
  * Guarantees every 4xx/5xx leaves the service as the stable v1 envelope
  * `{ error: { code, message, status, details, requestId } }`.
  * In production, 5xx responses carry a generic message with no stack,
  * SQL, driver, or internal-exception detail.
+ * 5xx failures are also emitted as structured `http_error` log lines via
+ * the shared logger (redacted URL only; bodies/secrets never logged).
  */
 @Catch()
 @Injectable()
 export class HttpExceptionFilter implements ExceptionFilter {
   constructor(
     @Optional() @Inject('APP_CONFIG') private readonly config?: AppConfigLike,
+    @Optional()
+    @Inject('JsonLoggerService')
+    private readonly logger?: LoggerService,
   ) {}
 
   private get isProduction(): boolean {
@@ -94,6 +101,18 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
     const requestId = resolveRequestId(req?.headers?.[REQUEST_ID_HEADER]);
     const envelope = this.toEnvelope(exception, requestId);
+
+    if (envelope.error.status >= 500) {
+      // Structured diagnostics for operators; the logger redacts secrets
+      // and the response body stays generic in production.
+      this.logger?.error('http_error', {
+        requestId,
+        code: envelope.error.code,
+        status: envelope.error.status,
+        method: req?.method,
+        url: redactUrl(req?.originalUrl ?? req?.url ?? ''),
+      });
+    }
 
     res.setHeader(REQUEST_ID_HEADER, requestId);
     res.status(envelope.error.status).json(envelope);

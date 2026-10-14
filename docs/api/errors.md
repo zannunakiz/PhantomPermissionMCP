@@ -74,6 +74,13 @@ throw new AppError('conflict_version', 'expectedVersion is stale', {
 });
 ```
 
-The global filter (`ErrorsModule`, registered once in `AppModule` via
-`APP_FILTER`) renders these; controllers and use cases never hand-build
-the envelope. Request-id propagation/logging middleware arrives in Step 06.
+## 6. Logging (Step 06)
+
+The global filter also emits a structured `http_error` log line for 5xx
+responses via the shared `JsonLoggerService`: `{ requestId, code, status,
+method, url }` with a redacted URL. Bodies, headers, cookies, query
+secrets, and key material are never logged.
+
+The middleware (`RequestIdMiddleware`) sets the request id before this
+filter runs, so error bodies and the `x-request-id` header agree with the
+access/error logs on every response, including errors.
