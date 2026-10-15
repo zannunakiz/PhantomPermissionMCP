@@ -176,9 +176,21 @@ rule ID, severity, subjects, evidence, and a "Candidate review"
 explanation — never a proven-vulnerability claim. Findings sort by
 `(ruleId, severity, subject)`; `findingCounts` reconcile.
 
-## 15. Non-goals
+## 15. Engine test suite (Step 17)
 
-No logic beyond Steps 09–16, no persistence, no
-Nest/MCP/HTTP imports in `src/domain/`. Application
-use cases (Step 17+) build on — never inside —
+`src/domain/fixtures.ts` provides `smallShopSnapshot()` (viewer →
+admin inheritance, two subjects) plus `expectNoMutation`. Gap-fill
+specs `engine-coverage.spec.ts` (validation edges, findings cap,
+diamond acyclicity + resolution, batch mixes, removal apply,
+empty-ops zero impact, no-DB/no-network scan) and
+`engine-coverage-rules.spec.ts` (direct `evaluateRiskRules` call,
+evidence reproducibility, end-to-end immutability) sit alongside the
+per-step suites. All domain tests run without DB, network, or
+external APIs.
+
+## 16. Non-goals
+
+No logic beyond Steps 09–17, no persistence, no
+Nest/MCP/HTTP imports in `src/domain/`. Property
+tests (Step 18) build on — never inside —
 these types.
