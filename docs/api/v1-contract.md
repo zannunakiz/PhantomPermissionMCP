@@ -10,13 +10,20 @@
 - **Versioning:** URL prefix `/api/v1` (ADR-005).
 - **Time:** RFC 3339 UTC strings. **IDs:** `mdl_…` / `sim_…` / `evt_…`
   prefixed opaque strings. **Versions:** integers ≥ 1.
-- **Error envelope** (all 4xx/5xx, wording finalised in Step 05):
+- **Error envelope** (all 4xx/5xx, Step 05 finalised — see
+  `docs/api/errors.md` for the normative wording):
 
 ```json
 { "error": { "code": "validation_failed", "message": "…human readable…",
+  "status": 400,
   "details": [ { "path": "roles[3].name", "reason": "duplicate" } ],
   "requestId": "req_…" } }
 ```
+
+  Every error response also echoes `requestId` in the `x-request-id`
+  header. In production, 5xx responses are generic
+  (`internal_error` / `Internal server error` / `details: []`) with no
+  stack, SQL, or secret detail.
 
 Codes: `validation_failed` 400, `unauthorized` 401, `forbidden_scope` 403,
 `tenant_forbidden` 403, `not_found` 404, `conflict_version` 409,
