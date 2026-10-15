@@ -127,9 +127,23 @@ invalid model reaches traversal. Unknown subjects throw
 `invalid_reference`; subjects with no assignments resolve to `[]`.
 Pure, non-mutating, no clock/randomness.
 
-## 11. Non-goals
+## 11. Operation preconditions (Step 13)
 
-No validation logic beyond Steps 09–12, no persistence, no
-Nest/MCP/HTTP imports in `src/domain/`. Operation
-preconditions (Step 13) build on — never inside —
+`checkOperation(snapshot, operation, index)` in
+`src/domain/check-operations.ts` (helpers in
+`operation-preconditions.ts` + `check-inheritance.ts`) classifies each
+op as `apply`, `noop` (`already_granted`, `not_granted`,
+`already_assigned`, `not_assigned`, `already_inherits`,
+`not_inherited`), or `error` (`invalid_reference`,
+`inheritance_cycle`, `unsupported_operation`). Guards
+(`assertValidStructure` + `assertAcyclicInheritance`) run first.
+`checkOperations` maps ordered lists. Details use
+`operations[i].<field>` paths with no echoed values. Checking only —
+application against a clone belongs to Step 14.
+
+## 12. Non-goals
+
+No validation logic beyond Steps 09–13, no persistence, no
+Nest/MCP/HTTP imports in `src/domain/`. Immutable
+application (Step 14) builds on — never inside —
 these types.

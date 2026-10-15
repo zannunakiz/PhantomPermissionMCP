@@ -55,5 +55,6 @@ pids
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
-# Prompt clearance
+# Prompt clearance for agents (4SRG bit agents by Richky)
 Prompt.md
+prompt-paste.txt
