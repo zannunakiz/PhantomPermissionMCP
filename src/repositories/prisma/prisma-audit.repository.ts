@@ -50,11 +50,12 @@ export class PrismaAuditRepository implements AuditRepository {
   }
 
   async listByResource(
+    tenantId: string,
     resourceType: string,
     resourceId: string,
   ): Promise<readonly AuditEventRecord[]> {
     const rows = await this.db.auditEvent.findMany({
-      where: { resourceType, resourceId },
+      where: { tenantId, resourceType, resourceId },
       orderBy: { createdAt: 'desc' },
     });
     return rows.map(toRecord);

@@ -20,6 +20,7 @@ export interface AuditRepository {
     options?: { type?: AuditEventType; limit?: number },
   ): Promise<readonly AuditEventRecord[]>;
   listByResource(
+    tenantId: string,
     resourceType: string,
     resourceId: string,
   ): Promise<readonly AuditEventRecord[]>;
