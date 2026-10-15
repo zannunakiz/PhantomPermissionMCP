@@ -44,6 +44,22 @@ createuser -s phantom          # or: CREATE USER phantom WITH PASSWORD 'phantom'
 createdb -O phantom phantom_permission_dev
 ```
 
+Docker alternative (used to verify this step; host port `5434` avoids
+clashes with any local Postgres on `5432`):
+
+```bash
+docker run -d --name phantom-postgres \
+  -e POSTGRES_USER=phantom -e POSTGRES_PASSWORD=phantom \
+  -e POSTGRES_DB=phantom_permission_dev \
+  -p 5434:5432 postgres:16-alpine
+export DATABASE_URL='postgresql://phantom:phantom@localhost:5434/phantom_permission_dev'
+```
+
+Then `npm run prisma:migrate:dev` applies the `0000_init` baseline;
+`npm run prisma:migrate:status`-equivalent
+(`npx prisma migrate status`) reports `Database schema is up to
+date!` afterwards.
+
 ## 4. Commands
 
 | Task | Command |
@@ -62,17 +78,19 @@ Steps 20-23 via their own migrations.
 
 ## 5. Verification (Step 19 gate)
 
-1. `npm run prisma:validate` — schema parses.
-2. `npm run prisma:generate` — client generates.
-3. `npm run prisma:migrate:dev` (or `deploy`) against local PG —
-   connection + migration history work.
+1. `npm run prisma:validate` — schema parses. ✅
+2. `npm run prisma:generate` — client generates. ✅
+3. `npm run prisma:migrate:dev` against local PG — connection +
+   migration history work. ✅ Verified 2026-10-15 against
+   `postgres:16-alpine` (`phantom-postgres` on host port `5434`):
+   `Applying migration 0000_init` → `Your database is now in sync
+   with your schema`; subsequent `prisma migrate status` reports
+   `Database schema is up to date!`.
 4. `npm run typecheck && npm run lint:check && npm run test && npm run build` —
-   no regressions; domain tests stay DB/network-free.
+   no regressions; domain tests stay DB/network-free. ✅
 
-Known environment note (2026-10-15): this sandbox reaches a
-PostgreSQL at `localhost:5432` but the `phantom` credentials fail
-(`P1000 authentication failed`) and no superuser/Docker path is
-available to provision the role, so live `migrate dev/deploy` was
-not runnable here; `validate` + `generate` + `migrate status`
-(plumbing up to the auth gate) pass. Run item 3 on a machine with
-the `phantom` role (see §3) before marking the gate fully green.
+Note: host port `5432` in this environment is occupied by an
+unrelated Postgres whose `phantom` credentials fail (`P1000`), so
+verification used host port `5434` per §3. The default
+`DATABASE_URL` (port `5432`) remains correct for a stock local
+setup; override via `.env` when ports differ.
