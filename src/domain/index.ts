@@ -56,3 +56,11 @@ export type {
   RevokePermissionOperation,
   UnassignRoleOperation,
 } from './operations';
+export {
+  SCHEMA_VERSION,
+  accessModelDocumentSchema,
+  parseAccessModelDocument,
+  parseProposedChangeDocument,
+  proposedChangeDocumentSchema,
+} from './schemas';
+export type { AccessModelDocument, ProposedChangeDocument } from './schemas';

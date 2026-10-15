@@ -77,9 +77,25 @@ Roles ≤ 500 · permissions ≤ 2000 · bindings ≤ 10000 · edges ≤ 2000 ·
 assignments ≤ 10000 · subjects ≤ 5000 · depth ≤ 25 · ops/simulation ≤ 200.
 Enforcement in Steps 09–11; this file is the single numeric source.
 
-## 7. Non-goals
+## 7. Runtime schemas (Step 09, `src/domain/schemas.ts`)
 
-No validation logic, no Zod schemas, no persistence, no Nest/MCP/HTTP
-imports in `src/domain/`. Runtime schemas (Step 09), structural checks
+- Envelopes: `{ schemaVersion: 1, snapshot }` and
+  `{ schemaVersion: 1, modelId, version?, operations, idempotencyKey? }`.
+  Wrong or missing `schemaVersion` is rejected explicitly.
+- Syntactic only: required fields, primitive types, `.strict()` unknown
+  keys, string lengths (ids/refs 1–128, role names 1–100, descriptions
+  ≤ 500, permission values 1–200 matching `^[A-Za-z0-9:._/*-]+$`,
+  display names 1–100, idempotency keys 1–128), collection caps from
+  `DOMAIN_LIMITS`, operation `type` discriminators, duplicate `id`
+  strings within one array.
+- Cross-array semantics (dangling refs, duplicate names/values/
+  bindings/edges, cycles) belong to Step 10+.
+- Failures throw `DomainError` with safe `{ path, reason }` details —
+  never echoed values.
+
+## 8. Non-goals
+
+No validation logic beyond Step 09 schemas, no persistence, no Nest/MCP/HTTP
+imports in `src/domain/`. Structural checks
 (Step 10), and cycle detection (Step 11) build on — never inside —
 these types.
