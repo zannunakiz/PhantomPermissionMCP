@@ -4,6 +4,7 @@ import { AppService } from './app.service';
 import { ErrorsModule } from './common/errors';
 import { LoggingModule, RequestIdMiddleware } from './common/logging';
 import { AppConfigModule } from './config';
+import { AuthModule } from './auth/auth.module';
 import { HealthModule } from './health';
 import { PrismaModule } from './persistence';
 import { RepositoriesModule } from './repositories';
@@ -15,6 +16,7 @@ import { RepositoriesModule } from './repositories';
     ErrorsModule,
     PrismaModule,
     RepositoriesModule,
+    AuthModule,
     HealthModule,
   ],
   controllers: [AppController],

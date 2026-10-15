@@ -3,6 +3,8 @@ import { AppError } from '../common/errors/app-error';
 export type TenantContext = {
   readonly tenantId: string;
   readonly keyPrefix?: string;
+  readonly keyId?: string;
+  readonly scopes?: readonly string[];
 };
 
 export function requireTenantId(ctx: TenantContext | null | undefined): string {
