@@ -6,6 +6,7 @@ import { LoggingModule, RequestIdMiddleware } from './common/logging';
 import { AppConfigModule } from './config';
 import { HealthModule } from './health';
 import { PrismaModule } from './persistence';
+import { RepositoriesModule } from './repositories';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { PrismaModule } from './persistence';
     LoggingModule,
     ErrorsModule,
     PrismaModule,
+    RepositoriesModule,
     HealthModule,
   ],
   controllers: [AppController],
