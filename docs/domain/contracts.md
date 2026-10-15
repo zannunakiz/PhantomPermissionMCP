@@ -141,9 +141,20 @@ op as `apply`, `noop` (`already_granted`, `not_granted`,
 `operations[i].<field>` paths with no echoed values. Checking only —
 application against a clone belongs to Step 14.
 
-## 12. Non-goals
+## 12. Immutable application (Step 14)
 
-No validation logic beyond Steps 09–13, no persistence, no
-Nest/MCP/HTTP imports in `src/domain/`. Immutable
-application (Step 14) builds on — never inside —
+`applyOperations(snapshot, operations)` in
+`src/domain/apply-operations.ts` clones the six snapshot arrays, then
+applies operations in order against the evolving draft via Step 13
+`checkOperation`. Returns `{ ok, snapshot, applied, noop }` or
+`{ ok: false, error, failedIndex }`. Input is never mutated on success
+or failure. A final structural + acyclicity revalidation guards the
+result. `assertApplyOperations` throws for pipeline use. Empty lists
+return an equal-content clone.
+
+## 13. Non-goals
+
+No logic beyond Steps 09–14, no persistence, no
+Nest/MCP/HTTP imports in `src/domain/`. Impact
+simulation (Step 15) builds on — never inside —
 these types.
