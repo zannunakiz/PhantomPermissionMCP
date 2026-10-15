@@ -8,6 +8,7 @@ import { AuthModule } from './auth/auth.module';
 import { HealthModule } from './health';
 import { ModelsModule } from './models/models.module';
 import { SimulationsModule } from './simulations/simulations.module';
+import { AuditModule } from './audit/audit.module';
 import { PrismaModule } from './persistence';
 import { RepositoriesModule } from './repositories';
 
@@ -22,6 +23,7 @@ import { RepositoriesModule } from './repositories';
     HealthModule,
     ModelsModule,
     SimulationsModule,
+    AuditModule,
   ],
   controllers: [AppController],
   providers: [AppService],
