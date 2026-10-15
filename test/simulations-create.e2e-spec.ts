@@ -46,6 +46,7 @@ const fakeKeyRepo = {
             scopes: [
               'simulations:run',
               'simulations:read',
+              'exports:read',
               'models:write',
               'models:read',
             ],
@@ -375,5 +376,39 @@ describe('POST /api/v1/simulations (e2e)', () => {
     expect(
       (sliced.body as { page: { page: number; pageSize: number } }).page,
     ).toEqual({ page: 2, pageSize: 1, total: 1 });
+  });
+
+  it('exports JSON and CSV with stable ordering and escaping', async () => {
+    const created = await request(app.getHttpServer())
+      .post('/api/v1/simulations')
+      .set('Authorization', `Bearer ${RAW_A}`)
+      .send(GRANT)
+      .expect(201);
+    const id = (created.body as { id: string }).id;
+    const json = await request(app.getHttpServer())
+      .get(`/api/v1/simulations/${id}/export?format=json`)
+      .set('Authorization', `Bearer ${RAW_A}`)
+      .expect(200);
+    expect(json.headers['content-type']).toContain('application/json');
+    const payload = json.body as {
+      impacts: { subjectId: string; added: string[] }[];
+      provenance: { modelId: string };
+    };
+    expect(payload.provenance.modelId).toBe('mdl_sim_1');
+    expect(payload.impacts[0]?.subjectId).toBe('alice');
+    const csv = await request(app.getHttpServer())
+      .get(`/api/v1/simulations/${id}/export?format=csv`)
+      .set('Authorization', `Bearer ${RAW_A}`)
+      .expect(200);
+    expect(csv.headers['content-type']).toContain('text/csv');
+    expect(csv.text).toContain('subject_id,change,permission');
+    expect(csv.text).toContain('alice,added,invoice:refund');
+    await request(app.getHttpServer())
+      .get(`/api/v1/simulations/${id}/export?format=xml`)
+      .set('Authorization', `Bearer ${RAW_A}`)
+      .expect(400);
+    await request(app.getHttpServer())
+      .get(`/api/v1/simulations/${id}/export?format=json`)
+      .expect(401);
   });
 });

@@ -231,4 +231,81 @@ export class SimulationsService {
       },
     };
   }
+
+  async exportReport(
+    ctx: TenantContext,
+    id: string,
+    format: string,
+  ): Promise<{ contentType: string; body: string }> {
+    if (format !== 'json' && format !== 'csv') {
+      throw new AppError('validation_failed', 'Unsupported export format.', {
+        details: [{ path: 'format', reason: 'invalid_value' }],
+      });
+    }
+    const sim = await this.loadSimulation(ctx, id);
+    const subjectOf = (row: Record<string, unknown>): string =>
+      typeof row.subjectId === 'string' ? row.subjectId : '';
+    const strList = (value: unknown): string[] =>
+      Array.isArray(value)
+        ? value.filter((v): v is string => typeof v === 'string').sort()
+        : [];
+    const impacts = asArray(sim.impacts)
+      .map((row) => ({
+        subjectId: subjectOf(row),
+        added: strList(row.added),
+        removed: strList(row.removed),
+      }))
+      .sort((a, b) => a.subjectId.localeCompare(b.subjectId));
+    const findings = asArray(sim.findings);
+    const rows: { subjectId: string; change: string; permission: string }[] =
+      [];
+    for (const impact of impacts) {
+      for (const permission of impact.added) {
+        rows.push({ subjectId: impact.subjectId, change: 'added', permission });
+      }
+      for (const permission of impact.removed) {
+        rows.push({
+          subjectId: impact.subjectId,
+          change: 'removed',
+          permission,
+        });
+      }
+    }
+    if (rows.length > 50000) {
+      throw new AppError('payload_too_large', 'Export exceeds row limit.', {
+        details: [{ path: 'format', reason: 'too_large' }],
+      });
+    }
+    if (format === 'json') {
+      const payload = {
+        id: sim.id,
+        tenantId: sim.tenantId,
+        status: sim.status === 'COMPLETED' ? 'completed' : 'failed',
+        summary: sim.summary,
+        impacts,
+        findings,
+        disclaimer: sim.disclaimer,
+        provenance: {
+          modelId: sim.modelId,
+          version: sim.version,
+          contentHash: sim.contentHash,
+          operations: sim.operations,
+          createdAt: toISOString(sim.createdAt),
+        },
+      };
+      return {
+        contentType: 'application/json',
+        body: JSON.stringify(payload),
+      };
+    }
+    const cell = (value: string): string =>
+      /[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+    const lines = ['subject_id,change,permission'];
+    for (const row of rows) {
+      lines.push(
+        [cell(row.subjectId), cell(row.change), cell(row.permission)].join(','),
+      );
+    }
+    return { contentType: 'text/csv', body: lines.join('\n') + '\n' };
+  }
 }

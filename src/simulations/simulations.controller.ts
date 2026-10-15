@@ -7,8 +7,10 @@ import {
   Param,
   Post,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { AuthGuard, CurrentTenant, RequireScopes } from '../auth/auth.guard';
 import { paginationQuerySchema, ZodValidationPipe } from '../common/http';
 import type { PaginationQuery } from '../common/http';
@@ -53,5 +55,18 @@ export class SimulationsController {
     @Query(new ZodValidationPipe(paginationQuerySchema)) query: PaginationQuery,
   ): unknown {
     return this.service.getReport(tenant, id, query);
+  }
+
+  @Get(':id/export')
+  @RequireScopes('exports:read')
+  async export(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id') id: string,
+    @Query('format') format: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<void> {
+    const out = await this.service.exportReport(tenant, id, format ?? 'json');
+    res.setHeader('Content-Type', out.contentType);
+    res.send(out.body);
   }
 }
