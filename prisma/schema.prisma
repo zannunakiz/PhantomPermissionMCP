@@ -1,9 +1,10 @@
 // Prisma schema for PhantomPermissionMCP.
 //
 // Step 19 (done): connection/migration plumbing.
-// Step 20 (this step): Tenant + ApiKey persistence boundary.
-// Steps 21-23 (pending): access models/versions, simulations/reports,
-// audit events, idempotency keys — not in this file yet.
+// Step 20 (done): Tenant + ApiKey persistence boundary.
+// Step 21 (this step): AccessModel + ModelVersion durable history.
+// Steps 22-23 (pending): simulations/reports, audit events,
+// idempotency keys — not in this file yet.
 //
 // PostgreSQL is the sole v1 database (ADR-003). Connection details
 // live in `prisma.config.ts` (Prisma 7 requires URLs outside the
@@ -27,6 +28,7 @@ model Tenant {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   apiKeys   ApiKey[]
+  accessModels AccessModel[]
 
   @@index([createdAt])
 }
@@ -61,4 +63,54 @@ model ApiKey {
   @@index([tenantId, status])
   @@index([keyPrefix])
   @@index([expiresAt])
+}
+
+// Access-model metadata (overview §4, contracts §1). Tenant-scoped by
+// `tenantId`; duplicate names within a tenant are rejected at the
+// use-case layer (Step 33) with `validation_failed` — the
+// `@@unique([tenantId, name])` constraint below is the race backstop.
+model AccessModel {
+  // App-assigned opaque `mdl_…` id (contracts §2).
+  id             String         @id
+  tenantId       String
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name           String
+  // Highest committed version; advanced transactionally with each
+  // ModelVersion insert (repository duty, Step 25).
+  currentVersion Int            @default(1)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  versions       ModelVersion[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@index([tenantId, updatedAt])
+}
+
+// One immutable, numbered snapshot (overview §4, ADR-008). Append-only:
+// rows are inserted, never updated in place. Business key is
+// `(modelId, version)`; `id` is an internal opaque row id.
+model ModelVersion {
+  id             String      @id
+  modelId        String
+  model          AccessModel @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  // Denormalised for tenant-scoped reads without a join
+  // (`tenant_forbidden` path, threat model T1).
+  tenantId       String
+  // Integer ≥ 1, strictly increasing per model (app-enforced).
+  version        Int
+  // `sha256:<64 hex>` over canonical snapshot JSON (app-computed,
+  // exposed as HTTP ETag; `If-Match` alternative to expectedVersion).
+  contentHash    String
+  // Full AccessModelSnapshot JSON (roles, permissions, bindings,
+  // inheritance, assignments, subjects). Stored whole as jsonb:
+  // snapshots are immutable and always read/written as a unit.
+  snapshot       Json
+  operationCount Int         @default(0)
+  createdAt      DateTime    @default(now())
+
+  @@unique([modelId, version])
+  @@index([tenantId])
+  @@index([modelId, version])
+  @@index([contentHash])
 }
