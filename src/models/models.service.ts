@@ -1,7 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { AppError } from '../common/errors/app-error';
-import { toISOString } from '../common/http';
+import { paginate, toISOString } from '../common/http';
+import type { PagedResult, PaginationQuery } from '../common/http';
+import { assertModelInTenant } from '../tenancy/tenant-scope';
 import { DomainError } from '../domain/errors';
 import { assertAcyclicInheritance } from '../domain/inheritance-cycles';
 import { parseAccessModelDocument } from '../domain/schemas';
@@ -16,14 +18,17 @@ import type { ModelVersionRepository } from '../repositories/model-version.repos
 import type { TenantContext } from '../tenancy/tenant-context';
 import type { CreateModelBody } from './models.dto';
 
-export type CreatedModel = {
+export type ModelSummary = {
   id: string;
   tenantId: string;
   name: string;
   currentVersion: number;
-  contentHash: string;
   createdAt: string;
+  updatedAt: string;
+  versions: { version: number; contentHash: string; createdAt: string }[];
 };
+
+export type CreatedModel = ModelSummary & { contentHash: string };
 
 function sha256Hex(canonical: string): string {
   return `sha256:${createHash('sha256').update(canonical).digest('hex')}`;
@@ -94,6 +99,14 @@ export class ModelsService {
         currentVersion: 1,
         contentHash: version.contentHash,
         createdAt: toISOString(model.createdAt),
+        updatedAt: toISOString(model.updatedAt),
+        versions: [
+          {
+            version: 1,
+            contentHash: version.contentHash,
+            createdAt: toISOString(version.createdAt),
+          },
+        ],
       };
     } catch (err) {
       if (isUniqueViolation(err)) {
@@ -105,5 +118,81 @@ export class ModelsService {
       }
       throw err;
     }
+  }
+
+  async listModels(
+    ctx: TenantContext,
+    query: PaginationQuery & { orderBy?: 'name' | 'createdAt' },
+  ): Promise<PagedResult<ModelSummary>> {
+    const rows = await this.models.listByTenant(ctx.tenantId);
+    const sorted = [...rows].sort((a, b) =>
+      query.orderBy === 'name'
+        ? a.name.localeCompare(b.name) || a.id.localeCompare(b.id)
+        : a.createdAt.getTime() - b.createdAt.getTime() ||
+          a.id.localeCompare(b.id),
+    );
+    const summaries: ModelSummary[] = await Promise.all(
+      sorted.map(async (m) => {
+        const vers = await this.versions.listByModel(ctx.tenantId, m.id);
+        return {
+          id: m.id,
+          tenantId: m.tenantId,
+          name: m.name,
+          currentVersion: m.currentVersion,
+          createdAt: toISOString(m.createdAt),
+          updatedAt: toISOString(m.updatedAt),
+          versions: vers.map((v) => ({
+            version: v.version,
+            contentHash: v.contentHash,
+            createdAt: toISOString(v.createdAt),
+          })),
+        };
+      }),
+    );
+    return paginate(summaries, query);
+  }
+
+  async getModel(
+    ctx: TenantContext,
+    id: string,
+    version?: number,
+  ): Promise<ModelSummary & { version: number; contentHash: string }> {
+    if (!/^mdl_[A-Za-z0-9_-]{1,120}$/.test(id)) {
+      throw new AppError('validation_failed', 'Invalid model id.', {
+        details: [{ path: 'id', reason: 'invalid_format' }],
+      });
+    }
+    const model = await this.models.findById(ctx.tenantId, id);
+    assertModelInTenant(model, ctx.tenantId);
+    const target = version ?? model.currentVersion;
+    if (!Number.isInteger(target) || target < 1) {
+      throw new AppError('validation_failed', 'Invalid version.', {
+        details: [{ path: 'version', reason: 'invalid_value' }],
+      });
+    }
+    const ver = await this.versions.findByModelVersion(
+      ctx.tenantId,
+      model.id,
+      target,
+    );
+    if (!ver || ver.modelId !== model.id) {
+      throw new AppError('not_found', 'Model version not found.');
+    }
+    const vers = await this.versions.listByModel(ctx.tenantId, model.id);
+    return {
+      id: model.id,
+      tenantId: model.tenantId,
+      name: model.name,
+      currentVersion: model.currentVersion,
+      createdAt: toISOString(model.createdAt),
+      updatedAt: toISOString(model.updatedAt),
+      versions: vers.map((v) => ({
+        version: v.version,
+        contentHash: v.contentHash,
+        createdAt: toISOString(v.createdAt),
+      })),
+      version: ver.version,
+      contentHash: ver.contentHash,
+    };
   }
 }

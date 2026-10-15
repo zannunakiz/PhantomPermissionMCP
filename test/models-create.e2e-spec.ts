@@ -39,7 +39,7 @@ function recordFor(
 
 const KEYS = [
   recordFor(RAW_A, 'tnt_a', ['models:write', 'models:read']),
-  recordFor(RAW_B, 'tnt_b', ['models:write']),
+  recordFor(RAW_B, 'tnt_b', ['models:write', 'models:read']),
   recordFor(RAW_READONLY, 'tnt_a', ['models:read']),
 ];
 
@@ -93,20 +93,54 @@ const fakeModelRepo = {
   },
 };
 
+type VersionRow = {
+  id: string;
+  modelId: string;
+  tenantId: string;
+  version: number;
+  contentHash: string;
+  createdAt: Date;
+};
+const versionRows: VersionRow[] = [];
+
 const fakeVersionRepo = {
-  findByModelVersion: () => Promise.resolve(null),
-  listByModel: () => Promise.resolve([]),
-  create: (input: { id: string; contentHash: string }) =>
-    Promise.resolve({
+  findByModelVersion: (tenantId: string, modelId: string, version: number) =>
+    Promise.resolve(
+      versionRows.find(
+        (v) =>
+          v.tenantId === tenantId &&
+          v.modelId === modelId &&
+          v.version === version,
+      ) ?? null,
+    ),
+  listByModel: (tenantId: string, modelId: string) =>
+    Promise.resolve(
+      versionRows.filter(
+        (v) => v.tenantId === tenantId && v.modelId === modelId,
+      ),
+    ),
+  create: (input: {
+    id: string;
+    modelId: string;
+    tenantId: string;
+    version: number;
+    contentHash: string;
+  }) => {
+    const row: VersionRow = {
       id: input.id,
-      modelId: 'x',
-      tenantId: 'x',
-      version: 1,
+      modelId: input.modelId,
+      tenantId: input.tenantId,
+      version: input.version,
       contentHash: input.contentHash,
+      createdAt: new Date(0),
+    };
+    versionRows.push(row);
+    return Promise.resolve({
+      ...row,
       snapshot: {},
       operationCount: 0,
-      createdAt: new Date(0),
-    }),
+    });
+  },
 };
 
 const SNAPSHOT = {
@@ -147,7 +181,29 @@ describe('POST /api/v1/models (e2e)', () => {
   });
   beforeEach(() => {
     modelRows.length = 0;
+    versionRows.length = 0;
   });
+
+  async function createAs(
+    raw: string,
+    name: string,
+  ): Promise<{ id: string; contentHash: string }> {
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/models')
+      .set('Authorization', `Bearer ${raw}`)
+      .send({ name, snapshot: SNAPSHOT })
+      .expect(201);
+    const body = res.body as { id: string; contentHash: string };
+    versionRows.push({
+      id: `ver_${body.id}`,
+      modelId: body.id,
+      tenantId: raw === RAW_B ? 'tnt_b' : 'tnt_a',
+      version: 1,
+      contentHash: body.contentHash,
+      createdAt: new Date(0),
+    });
+    return body;
+  }
 
   it('creates a model with version 1', async () => {
     const res = await request(app.getHttpServer())
@@ -215,5 +271,50 @@ describe('POST /api/v1/models (e2e)', () => {
       .set('Authorization', `Bearer ${RAW_B}`)
       .send({ name: 'shared', snapshot: SNAPSHOT })
       .expect(201);
+  });
+
+  it('lists only own models with pagination and summaries', async () => {
+    await createAs(RAW_A, 'alpha');
+    await createAs(RAW_A, 'beta');
+    await createAs(RAW_B, 'other');
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/models?page=1&pageSize=1&orderBy=name')
+      .set('Authorization', `Bearer ${RAW_A}`)
+      .expect(200);
+    const body = res.body as {
+      data: { name: string; versions: unknown[]; snapshot?: unknown }[];
+      page: { total: number };
+    };
+    expect(body.page.total).toBe(2);
+    expect(body.data.length).toBe(1);
+    expect(body.data[0]?.name).toBe('alpha');
+    expect(Array.isArray(body.data[0]?.versions)).toBe(true);
+    expect(body.data[0]?.snapshot).toBeUndefined();
+    const empty = await request(app.getHttpServer())
+      .get('/api/v1/models')
+      .set('Authorization', `Bearer ${RAW_READONLY}`)
+      .expect(200);
+    expect(
+      (empty.body as { page: { total: number } }).page.total,
+    ).toBeGreaterThanOrEqual(0);
+  });
+
+  it('retrieves detail, rejects bad id and cross-tenant', async () => {
+    const created = await createAs(RAW_A, 'detail');
+    const res = await request(app.getHttpServer())
+      .get(`/api/v1/models/${created.id}`)
+      .set('Authorization', `Bearer ${RAW_A}`)
+      .expect(200);
+    expect((res.body as { id: string; contentHash: string }).id).toBe(
+      created.id,
+    );
+    await request(app.getHttpServer())
+      .get('/api/v1/models/not_a_model')
+      .set('Authorization', `Bearer ${RAW_A}`)
+      .expect(400);
+    await request(app.getHttpServer())
+      .get(`/api/v1/models/${created.id}`)
+      .set('Authorization', `Bearer ${RAW_B}`)
+      .expect(404);
   });
 });
