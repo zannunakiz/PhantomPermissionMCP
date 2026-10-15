@@ -70,3 +70,10 @@ export {
   validateStructure,
 } from './validate-structure';
 export type { StructuralValidationResult } from './validate-structure';
+export {
+  MAX_INHERITANCE_EDGES,
+  MAX_INHERITANCE_TRAVERSAL_DEPTH,
+  assertAcyclicInheritance,
+  detectInheritanceCycle,
+} from './inheritance-cycles';
+export type { InheritanceCycleResult } from './inheritance-cycles';

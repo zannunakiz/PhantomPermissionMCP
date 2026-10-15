@@ -104,9 +104,20 @@ order, capped at 100 with a trailing `too_many_findings` marker.
 required guard before Step 12 permission resolution. Multi-node cycle
 paths belong to Step 11.
 
-## 9. Non-goals
+## 9. Cycle detection (Step 11)
 
-No validation logic beyond Steps 09–10, no persistence, no Nest/MCP/HTTP
-imports in `src/domain/`. Cycle-path detection
-(Step 11) builds on — never inside —
+`detectInheritanceCycle(snapshot)` in
+`src/domain/inheritance-cycles.ts` runs iterative DFS over child →
+parent links and returns the first cycle as an explicit node path
+(first id repeats last), or `{ ok: true }`. Bounds from
+`DOMAIN_LIMITS`: ≤ 2000 edges and traversal depth ≤ 25, else
+`limit_exceeded`. Unknown role references are a Step 10 concern and are
+skipped here. `assertAcyclicInheritance()` is the required guard before
+Step 12 resolution.
+
+## 10. Non-goals
+
+No validation logic beyond Steps 09–11, no persistence, no
+Nest/MCP/HTTP imports in `src/domain/`. Permission resolution
+(Step 12) builds on — never inside —
 these types.
