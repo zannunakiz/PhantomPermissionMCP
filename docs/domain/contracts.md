@@ -152,9 +152,18 @@ or failure. A final structural + acyclicity revalidation guards the
 result. `assertApplyOperations` throws for pipeline use. Empty lists
 return an equal-content clone.
 
-## 13. Non-goals
+## 13. Impact simulation (Step 15)
 
-No logic beyond Steps 09–14, no persistence, no
-Nest/MCP/HTTP imports in `src/domain/`. Impact
-simulation (Step 15) builds on — never inside —
+`simulateChange(snapshot, operations)` in
+`src/domain/calculate-impact.ts` resolves all subjects before and
+after immutable application (Step 14), then diffs per subject into
+sorted `added[]`/`removed[]` facts. Only changed subjects appear in
+`impacts`/`affectedSubjects`; counts reconcile with detail records.
+`findingCounts` are zeroed — risk rules belong to Step 16.
+
+## 14. Non-goals
+
+No logic beyond Steps 09–15, no persistence, no
+Nest/MCP/HTTP imports in `src/domain/`. Risk
+rules (Step 16) build on — never inside —
 these types.

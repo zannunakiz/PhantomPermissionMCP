@@ -85,3 +85,4 @@ export type { OperationOutcome } from './operation-preconditions-types';
 export { checkOperation, checkOperations } from './check-operations';
 export type { ApplyOperationsResult } from './apply-operations';
 export { applyOperations, assertApplyOperations } from './apply-operations';
+export { simulateChange } from './calculate-impact';
