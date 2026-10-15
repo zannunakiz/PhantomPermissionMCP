@@ -7,6 +7,7 @@ import { AppConfigModule } from './config';
 import { AuthModule } from './auth/auth.module';
 import { HealthModule } from './health';
 import { ModelsModule } from './models/models.module';
+import { SimulationsModule } from './simulations/simulations.module';
 import { PrismaModule } from './persistence';
 import { RepositoriesModule } from './repositories';
 
@@ -20,6 +21,7 @@ import { RepositoriesModule } from './repositories';
     AuthModule,
     HealthModule,
     ModelsModule,
+    SimulationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
