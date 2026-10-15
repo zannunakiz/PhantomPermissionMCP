@@ -9,11 +9,11 @@ import { PrismaClient } from '@prisma/client';
 import { Pool } from 'pg';
 
 /**
- * Application-wide PostgreSQL client (Step 19).
+ * Application-wide PostgreSQL client.
  *
  * Owns connection lifecycle only — `$connect` on bootstrap,
  * `$disconnect` on shutdown. No domain logic, no queries, no
- * repositories here: Steps 20-25 add tables and adapters on top
+ * repositories here: tables and adapters live on top
  * of this service. `src/domain/` must never import this file
  * (ADR-002: framework-free deterministic engine).
  *

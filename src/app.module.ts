@@ -4,10 +4,19 @@ import { AppService } from './app.service';
 import { ErrorsModule } from './common/errors';
 import { LoggingModule, RequestIdMiddleware } from './common/logging';
 import { AppConfigModule } from './config';
+import { HealthModule } from './health';
 import { PrismaModule } from './persistence';
+import { RepositoriesModule } from './repositories';
 
 @Module({
-  imports: [AppConfigModule, LoggingModule, ErrorsModule, PrismaModule],
+  imports: [
+    AppConfigModule,
+    LoggingModule,
+    ErrorsModule,
+    PrismaModule,
+    RepositoriesModule,
+    HealthModule,
+  ],
   controllers: [AppController],
   providers: [AppService],
 })

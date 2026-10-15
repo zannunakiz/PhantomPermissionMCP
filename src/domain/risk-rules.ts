@@ -1,5 +1,5 @@
 /**
- * Explainable risk rules (Step 16), part 1: config + helpers.
+ * Explainable risk rules, part 1: config + helpers.
  *
  * Deterministic advisory rules over a simulated impact. Thresholds and
  * sensitive lists are explicit in `RiskRuleConfig`; findings are worded

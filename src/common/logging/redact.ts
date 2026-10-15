@@ -1,5 +1,5 @@
 /**
- * Secret redaction for logs (Step 06).
+ * Secret redaction for logs.
  *
  * Bodies are never logged by the access logger; this module guarantees that
  * when any structured field IS logged, secret material is masked first.

@@ -7,7 +7,7 @@ import { redactUrl } from './redact';
 import { runWithRequestId } from './request-context';
 
 /**
- * Request-id + access-log middleware (Step 06).
+ * Request-id + access-log middleware.
  *
  * For every request: resolve (or generate) the `req_…` request id, expose it
  * as the `x-request-id` response header, and run the handler inside the

@@ -1,10 +1,11 @@
 /**
- * Supported change operations (Step 08).
+ * Supported change operations.
  *
  * Mirrors docs/architecture/overview.md §5 and docs/api/v1-contract.md
- * §4 (simulations). A discriminated union so later steps can
+ * §4 (simulations). A discriminated union so consumers can
  * exhaustively switch on `type`. Preconditions and conflict behaviour
- * are documented per operation; enforcement belongs to Steps 13–14.
+ * are documented per operation; enforcement belongs to the
+ * precondition + application modules.
  *
  * Unknown operation types are unrepresentable at the type level.
  */

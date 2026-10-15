@@ -1,5 +1,5 @@
 /**
- * Strict transport-input validation pipe (Step 07).
+ * Strict transport-input validation pipe.
  *
  * Transport boundary only: validates HTTP body/query/params shapes
  * (presence, primitive types, unknown keys) and never encodes domain
@@ -12,7 +12,7 @@
  * - No implicit coercion: `z.string()` never accepts numbers, `z.number()`
  *   never accepts numeric strings. Use explicit `z.preprocess` only where
  *   a coercion is documented and intentional.
- * - Failures throw `AppError('validation_failed')` so the global Step 05
+ * - Failures throw `AppError('validation_failed')` so the global
  *   filter renders the stable v1 envelope with safe field details.
  * - Details carry `path` + machine-stable `reason` only — never echoed
  *   input values — so secrets in the payload cannot leak into responses.

@@ -1,5 +1,5 @@
 /**
- * HTTP transport hardening (Step 07).
+ * HTTP transport hardening.
  *
  * Applies body-size limits from `APP_CONFIG.requestBodyLimit`, restricts
  * accepted content types for body-bearing requests, and converts

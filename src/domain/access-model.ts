@@ -1,10 +1,10 @@
 /**
- * Access-model entities (Step 08).
+ * Access-model entities.
  *
  * Mirrors docs/architecture/overview.md §4. Plain data types only —
  * no behaviour, no validation, no framework imports. Runtime checks
  * (required fields, duplicates, reference resolution) belong to
- * Steps 09–10 operating on these shapes.
+ * the validation layer operating on these shapes.
  */
 import type { PermissionId, RoleId, SubjectId, TenantId, ModelId } from './ids';
 

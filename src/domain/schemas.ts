@@ -1,15 +1,15 @@
 /**
- * Runtime schemas for imported models and simulations (Step 09).
+ * Runtime schemas for imported models and simulations.
  *
  * Syntactic validation only: required fields, primitive types, unknown
  * keys, string lengths, collection limits, operation names, and schema
  * version. Uses the repository's validation library (Zod) consistently.
  *
- * Step 09 / Step 10 boundary: this file checks shapes, lengths, limits,
+ * Shape/semantics boundary: this file checks shapes, lengths, limits,
  * duplicate `id` strings within one array, and `type` discriminators.
  * Cross-array semantics (dangling role/permission/subject references,
  * duplicate names/values/bindings/edges, inheritance cycles) belong to
- * Step 10+ and are intentionally not checked here.
+ * structural validation and are intentionally not checked here.
  *
  * Failures throw {@link DomainError} with safe field-level `details[]`
  * (`{ path, reason }` only — never echoed input values) so adapters can

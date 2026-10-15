@@ -1,10 +1,10 @@
 /**
- * Risk finding types (Step 08).
+ * Risk finding types.
  *
  * Mirrors the risk rule catalogue in docs/architecture/overview.md §6.
  * Findings are advisory only — the product never claims a score proves
  * security. Thresholds are configurable and explicit in output; rule
- * evaluation belongs to later steps.
+ * evaluation lives in the findings modules.
  */
 import type { SubjectId } from './ids';
 

@@ -1,5 +1,5 @@
 /**
- * Change-operation preconditions (Step 13), part 2b: entry points.
+ * Change-operation preconditions, part 2b: entry points.
  *
  * `checkOperation` is exhaustive over the six supported types with a
  * defensive `unsupported_operation` fallback for runtime-unknown values.

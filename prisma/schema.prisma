@@ -1,10 +1,5 @@
 // Prisma schema for PhantomPermissionMCP.
 //
-// Step 19 (done): connection/migration plumbing.
-// Step 20 (this step): Tenant + ApiKey persistence boundary.
-// Steps 21-23 (pending): access models/versions, simulations/reports,
-// audit events, idempotency keys — not in this file yet.
-//
 // PostgreSQL is the sole v1 database (ADR-003). Connection details
 // live in `prisma.config.ts` (Prisma 7 requires URLs outside the
 // schema file); see `.env.example` for the local `DATABASE_URL`.
@@ -27,6 +22,9 @@ model Tenant {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   apiKeys   ApiKey[]
+  accessModels AccessModel[]
+  auditEvents AuditEvent[]
+  idempotencyRecords IdempotencyRecord[]
 
   @@index([createdAt])
 }
@@ -48,7 +46,8 @@ model ApiKey {
   keyPrefix  String
   // HMAC-SHA-256(rawKey, serverPepper) hex. The only stored credential.
   keyDigest  String       @unique
-  // Subset of the 6 v1 scopes (v1-contract §1); enforced in Step 27.
+  // Subset of the 6 v1 scopes (v1-contract §1); enforced at the
+  // authentication layer.
   scopes     String[]
   status     ApiKeyStatus @default(ACTIVE)
   expiresAt  DateTime?
@@ -60,5 +59,170 @@ model ApiKey {
   @@index([tenantId])
   @@index([tenantId, status])
   @@index([keyPrefix])
+  @@index([expiresAt])
+}
+
+// Access-model metadata (overview §4, contracts §1). Tenant-scoped by
+// `tenantId`; duplicate names within a tenant are rejected at the
+// use-case layer with `validation_failed` — the
+// `@@unique([tenantId, name])` constraint below is the race backstop.
+model AccessModel {
+  // App-assigned opaque `mdl_…` id (contracts §2).
+  id             String         @id
+  tenantId       String
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name           String
+  // Highest committed version; advanced transactionally with each
+  // ModelVersion insert (repository duty).
+  currentVersion Int            @default(1)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  versions       ModelVersion[]
+  simulations    Simulation[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@index([tenantId, updatedAt])
+}
+
+// One immutable, numbered snapshot (overview §4, ADR-008). Append-only:
+// rows are inserted, never updated in place. Business key is
+// `(modelId, version)`; `id` is an internal opaque row id.
+model ModelVersion {
+  id             String      @id
+  modelId        String
+  model          AccessModel @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  // Denormalised for tenant-scoped reads without a join
+  // (`tenant_forbidden` path, threat model T1).
+  tenantId       String
+  // Integer ≥ 1, strictly increasing per model (app-enforced).
+  version        Int
+  // `sha256:<64 hex>` over canonical snapshot JSON (app-computed,
+  // exposed as HTTP ETag; `If-Match` alternative to expectedVersion).
+  contentHash    String
+  // Full AccessModelSnapshot JSON (roles, permissions, bindings,
+  // inheritance, assignments, subjects). Stored whole as jsonb:
+  // snapshots are immutable and always read/written as a unit.
+  snapshot       Json
+  operationCount Int         @default(0)
+  createdAt      DateTime    @default(now())
+
+  @@unique([modelId, version])
+  @@index([tenantId])
+  @@index([modelId, version])
+  @@index([contentHash])
+}
+
+// Simulation execution state (overview §4, v1-contract §4). Stored once
+// per run; rows are never mutated after insert — a rerun creates a new
+// `sim_…` row (idempotency replay returns the stored row,
+// it does not rewrite it).
+enum SimulationStatus {
+  COMPLETED
+  FAILED
+}
+
+// One reproducible run (overview §4) with its report co-located.
+// Single table (not Simulation + Report tables): the report is 1──1,
+// always read with its simulation (`GET …/report`), and never queried
+// element-wise in v1 — a split would add joins with zero benefit.
+model Simulation {
+  // App-assigned opaque `sim_…` id (contracts §2).
+  id           String           @id
+  // Denormalised for join-free tenant-scoped reads
+  // (`tenant_forbidden` path, threat model T1).
+  tenantId     String
+  modelId      String
+  model        AccessModel      @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  // Input ModelVersion.version this run analysed.
+  version      Int
+  // Direct link to the analysed ModelVersion row id.
+  versionRowId String
+  // Input snapshot's `sha256:<hex>` hash, copied at insert so the report
+  // traces to the exact immutable input even if versions are ever pruned.
+  contentHash  String
+  // Submitted ChangeOperation[] in order (contracts §3, 6-type union).
+  operations   Json
+  status       SimulationStatus @default(COMPLETED)
+  // SimulationSummary counts + findingCounts (domain/impact.ts).
+  summary      Json
+  // SubjectImpact[] sorted by subjectId (domain/impact.ts).
+  impacts      Json
+  // RiskFinding[] sorted by (ruleId, severity, subject); advisory only.
+  findings     Json
+  // Advisory disclaimer stored verbatim with the report.
+  disclaimer   String
+  createdAt    DateTime         @default(now())
+
+  @@index([tenantId])
+  @@index([tenantId, createdAt])
+  @@index([modelId, version])
+  @@index([contentHash])
+}
+
+// Audit lifecycle (v1-contract §4, ADR-009, threat model T4/T6).
+// Append-only: rows are inserted, never updated or deleted by the
+// service. `resourceId` is a typed string, not a FK: audit must survive
+// the referenced row's deletion and covers exports (no table) —
+// per-type nullable FKs would sprawl with every resource.
+enum AuditEventType {
+  MODEL_CREATED
+  MODEL_VERSION_CREATED
+  SIMULATION_CREATED
+  SIMULATION_FAILED
+  API_KEY_ISSUED
+  API_KEY_REVOKED
+  API_KEY_EXPIRED
+  REPORT_EXPORTED
+}
+
+model AuditEvent {
+  // App-assigned opaque `evt_…` id (contracts §2).
+  id             String         @id
+  tenantId       String
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  type           AuditEventType
+  // Safe `ppk_…` prefix of the calling key — never digest or raw secret.
+  actorKeyPrefix String
+  // e.g. access-model | model-version | simulation | api-key | export.
+  resourceType   String
+  // mdl_…/sim_…/key row id or export reference; intentionally no FK.
+  resourceId     String
+  // Redacted context only (version, contentHash, status, counts,
+  // prefixes). NEVER raw keys, digests, or full snapshots.
+  metadata       Json
+  createdAt      DateTime       @default(now())
+
+  @@index([tenantId])
+  @@index([tenantId, createdAt])
+  @@index([tenantId, type, createdAt])
+  @@index([resourceType, resourceId])
+}
+
+// Retry-safe mutating requests (overview §8, ADR-009). One row per
+// (tenant, endpoint, client key). Same key + same requestHash → replay
+// stored result; same key + different hash → `idempotency_conflict`
+// 409 (use-case duty). `expiresAt` is required so the
+// retention sweep is well-defined — no null TTL.
+model IdempotencyRecord {
+  // Internal opaque row id.
+  id             String   @id
+  tenantId       String
+  tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  // e.g. POST /api/v1/simulations | POST /api/v1/models/{id}/versions.
+  endpoint       String
+  // Client-supplied `Idempotency-Key` header/value.
+  idempotencyKey String
+  // sha256 over the canonical request payload.
+  requestHash    String
+  // HTTP status to replay.
+  statusCode     Int
+  // Stored result body to replay verbatim.
+  responseBody   Json
+  createdAt      DateTime @default(now())
+  expiresAt      DateTime
+
+  @@unique([tenantId, endpoint, idempotencyKey])
+  @@index([tenantId])
   @@index([expiresAt])
 }

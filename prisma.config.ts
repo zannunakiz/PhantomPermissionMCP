@@ -1,6 +1,6 @@
 import { defineConfig } from 'prisma/config';
 
-// Prisma 7 connection config (Step 19). Migration commands read
+// Prisma 7 connection config. Migration commands read
 // `DATABASE_URL` from the environment (`.env` locally, real secret
 // in production). No Accelerate, no extra datasource — direct
 // PostgreSQL only (ADR-003).

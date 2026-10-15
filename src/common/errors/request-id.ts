@@ -12,7 +12,8 @@ const INCOMING_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
  * Resolve the request id for an error response.
  * Reuses a caller-supplied `x-request-id` when it looks safe;
  * otherwise generates `req_<24 hex chars>`.
- * Full propagation/logging middleware lands in Step 06 — this keeps
+ * Full propagation/logging middleware lives alongside this helper —
+ * this keeps
  * error responses stable and correlatable on its own.
  */
 export function resolveRequestId(

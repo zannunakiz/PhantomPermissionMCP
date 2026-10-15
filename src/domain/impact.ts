@@ -1,5 +1,5 @@
 /**
- * Impact result types (Step 08).
+ * Impact result types.
  *
  * Mirrors the simulation pipeline in docs/architecture/overview.md §6
  * and the report shapes in docs/api/v1-contract.md §4. Deterministic

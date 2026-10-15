@@ -1,10 +1,10 @@
 /**
- * Stable identifier rules for the domain engine (Step 08).
+ * Stable identifier rules for the domain engine.
  *
  * IDs are opaque strings with documented prefixes. The engine never
  * generates randomness or clock values — ID creation lives outside the
  * analysis paths (persistence adapters). These helpers only validate and
- * narrow already-supplied strings so later steps can fail fast on
+ * narrow already-supplied strings so callers can fail fast on
  * malformed identifiers without leaking transport concerns into the core.
  *
  * Rules (mirror docs/architecture/overview.md §3 and
@@ -12,8 +12,8 @@
  * - Resource IDs carry stable prefixes: models `mdl_…`, simulations
  *   `sim_…`, audit events `evt_…`, tenants `tnt_…`.
  * - Entity references (roles, permissions, subjects) are opaque non-empty
- *   strings (≤128 chars). Uniqueness is enforced by runtime validation
- *   (Steps 09–10), not here.
+ *   strings (≤128 chars). Uniqueness is enforced by runtime validation,
+ *   not here.
  * - `contentHash` is `sha256:<64 lowercase hex chars>`.
  * - Model versions are integers ≥ 1.
  */

@@ -3,7 +3,7 @@ import { APP_FILTER } from '@nestjs/core';
 import { HttpExceptionFilter } from './http-exception.filter';
 
 /**
- * Registers the Step 05 global REST error filter.
+ * Registers the global REST error filter.
  * Imported once by `AppModule` so unit, e2e, and runtime apps
  * share the same stable error envelope.
  */

@@ -3,7 +3,7 @@ import { JsonLoggerService } from './json-logger.service';
 import { RequestIdMiddleware } from './request-id.middleware';
 
 /**
- * Step 06 observability providers. Global so the error filter
+ * Observability providers. Global so the error filter
  * (`ErrorsModule`), middleware registration (`AppModule`), bootstrap
  * (`main.ts`), and tests can share one `JsonLoggerService` without
  * module cycles. `LoggingModule` itself imports nothing.

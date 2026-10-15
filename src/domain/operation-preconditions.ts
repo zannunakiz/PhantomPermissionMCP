@@ -1,5 +1,5 @@
 /**
- * Change-operation preconditions (Step 13), part 1: grant/revoke/assign.
+ * Change-operation preconditions, part 1: grant/revoke/assign.
  *
  * Semantic checks against a validated snapshot. Guards
  * (`assertValidStructure` + `assertAcyclicInheritance`) run first.

@@ -1,6 +1,6 @@
 /**
- * Stable v1 error codes shared by REST and MCP (Step 05).
- * Snake-case, frozen wording — Step 05 may extend, never rename
+ * Stable v1 error codes shared by REST and MCP.
+ * Snake-case, frozen wording — the list may be extended, never renamed
  * (see `docs/api/v1-contract.md` §1 and §6).
  */
 export const ERROR_CODES = [
