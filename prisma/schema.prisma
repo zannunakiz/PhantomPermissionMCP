@@ -1,0 +1,21 @@
+// Prisma schema for PhantomPermissionMCP (Step 19 — persistence setup).
+//
+// Step 19 owns ONLY the connection/migration plumbing. Domain tables
+// (tenants, API keys, access models, versions, simulations, reports,
+// audit events, idempotency keys) belong to Steps 20-23 and must be
+// added there — not here. This file intentionally declares no models
+// so `prisma validate/generate/migrate` can be verified end-to-end
+// before any table exists.
+//
+// PostgreSQL is the sole v1 database (ADR-003). Connection details
+// live in `prisma.config.ts` (Prisma 7 requires URLs outside the
+// schema file); see `.env.example` for the local `DATABASE_URL`.
+// Production requires a real URL via `src/config/app-config.ts`.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
