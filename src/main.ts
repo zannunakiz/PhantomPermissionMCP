@@ -1,6 +1,8 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
+import { setupHttpHandling } from './common/http';
 import { JsonLoggerService } from './common/logging';
+
 import {
   AppConfig,
   ConfigValidationError,
@@ -52,7 +54,12 @@ async function bootstrap() {
   });
   const app = await NestFactory.create(AppModule, {
     logger: bootstrapLogger,
+    bodyParser: false,
   });
+  // Step 07: content-type guard + size-limited parsers + v1 error mapping
+  // for malformed/oversized payloads. Applied before listen so every
+  // route (current and future) is protected.
+  setupHttpHandling(app, { requestBodyLimit: config.requestBodyLimit });
   await app.listen(config.port);
 }
 void bootstrap();
