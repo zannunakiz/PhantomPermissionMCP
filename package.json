@@ -34,7 +34,12 @@
     "prisma:studio": "prisma studio",
     "db:seed": "ts-node --transpile-only prisma/seed.ts",
     "db:reset": "prisma migrate reset --force --skip-seed && npm run db:seed",
-    "db:deploy": "prisma migrate deploy"
+    "db:deploy": "prisma migrate deploy",
+    "provision": "ts-node --transpile-only src/auth/provision.cli.ts",
+    "tenant:create": "ts-node --transpile-only src/auth/provision.cli.ts tenant:create",
+    "key:issue": "ts-node --transpile-only src/auth/provision.cli.ts key:issue",
+    "key:revoke": "ts-node --transpile-only src/auth/provision.cli.ts key:revoke",
+    "key:rotate": "ts-node --transpile-only src/auth/provision.cli.ts key:rotate"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

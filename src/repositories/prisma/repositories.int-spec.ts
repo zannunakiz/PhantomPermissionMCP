@@ -264,7 +264,11 @@ describe('Prisma repository adapters (integration)', () => {
       type: 'MODEL_CREATED',
     });
     expect(filtered.map((e) => e.id)).toEqual(['evt_repo_int_1']);
-    const trail = await audit.listByResource('simulation', 'sim_repo_int_1');
+    const trail = await audit.listByResource(
+      TENANT,
+      'simulation',
+      'sim_repo_int_1',
+    );
     expect(trail.map((e) => e.id)).toEqual(['evt_repo_int_2']);
   });
 });

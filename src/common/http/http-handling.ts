@@ -21,6 +21,11 @@ import type { INestApplication } from '@nestjs/common';
 import type { NextFunction, Request, Response } from 'express';
 import { json, urlencoded } from 'express';
 import { REQUEST_ID_HEADER, resolveRequestId } from '../errors/request-id';
+import {
+  fixedWindowRateLimiter,
+  securityHeaders,
+  strictCors,
+} from './security';
 
 const JSON_CONTENT_TYPES = ['application/json', 'application/*+json'];
 const FORM_CONTENT_TYPE = 'application/x-www-form-urlencoded';
@@ -33,6 +38,10 @@ type BodyParserFailure = Error & {
 
 type LimitConfig = {
   requestBodyLimit: string;
+  nodeEnv?: string;
+  corsOrigins?: readonly string[];
+  rateLimitWindowMs?: number;
+  rateLimitMax?: number;
 };
 
 function isBodyBearingRequest(req: Request): boolean {
@@ -159,6 +168,26 @@ export function setupHttpHandling(
   config: LimitConfig,
 ): void {
   const limit = config.requestBodyLimit;
+  // Reverse-proxy assumption: TLS + client-IP enforcement terminate at the
+  // proxy (e.g. Nginx). Trust-proxy stays off; rate limiting keys on direct
+  // peer IP unless x-forwarded-for is set by the trusted proxy.
+  // No outbound fetch feature exists, so no SSRF surface to guard.
+  const server = app.getHttpServer() as unknown as
+    { disable?: (name: string) => void } | undefined;
+  server?.disable?.('x-powered-by');
+  const adapter = app.getHttpAdapter?.() as unknown as
+    { getInstance?: () => { disable?: (name: string) => void } } | undefined;
+  adapter?.getInstance?.()?.disable?.('x-powered-by');
+  app.use(securityHeaders(config.nodeEnv ?? 'development'));
+  app.use(strictCors(config.corsOrigins ?? []));
+  if (config.rateLimitMax && config.rateLimitMax > 0) {
+    app.use(
+      fixedWindowRateLimiter(
+        config.rateLimitWindowMs ?? 60000,
+        config.rateLimitMax,
+      ),
+    );
+  }
   app.use(contentTypeGuard);
   app.use(json({ limit, type: JSON_CONTENT_TYPES }));
   app.use(urlencoded({ limit, extended: false }));
