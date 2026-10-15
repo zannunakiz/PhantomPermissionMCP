@@ -59,7 +59,18 @@ async function bootstrap() {
   // Content-type guard + size-limited parsers + v1 error mapping
   // for malformed/oversized payloads. Applied before listen so every
   // route (current and future) is protected.
-  setupHttpHandling(app, { requestBodyLimit: config.requestBodyLimit });
+  setupHttpHandling(app, {
+    requestBodyLimit: config.requestBodyLimit,
+    nodeEnv: config.nodeEnv,
+    corsOrigins: config.corsOrigins,
+    rateLimitWindowMs: config.rateLimitWindowMs,
+    rateLimitMax: config.rateLimitMax,
+  });
+  const server = app.getHttpServer() as
+    | { setTimeout?: (ms: number) => void; keepAliveTimeout?: number }
+    | undefined;
+  server?.setTimeout?.(30000);
+  if (server) server.keepAliveTimeout = 5000;
   await app.listen(config.port);
 }
 void bootstrap();
