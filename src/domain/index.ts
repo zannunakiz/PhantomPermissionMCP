@@ -86,3 +86,13 @@ export { checkOperation, checkOperations } from './check-operations';
 export type { ApplyOperationsResult } from './apply-operations';
 export { applyOperations, assertApplyOperations } from './apply-operations';
 export { simulateChange } from './calculate-impact';
+export {
+  DEFAULT_RISK_RULE_CONFIG,
+  evaluateRiskRules,
+  simulateWithFindings,
+} from './risk-rules';
+export type {
+  EscalationPattern,
+  RiskRuleConfig,
+  SimulationWithFindings,
+} from './risk-rules';

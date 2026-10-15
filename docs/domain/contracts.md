@@ -161,9 +161,24 @@ sorted `added[]`/`removed[]` facts. Only changed subjects appear in
 `impacts`/`affectedSubjects`; counts reconcile with detail records.
 `findingCounts` are zeroed — risk rules belong to Step 16.
 
-## 14. Non-goals
+## 14. Risk rules (Step 16)
 
-No logic beyond Steps 09–15, no persistence, no
-Nest/MCP/HTTP imports in `src/domain/`. Risk
-rules (Step 16) build on — never inside —
+`evaluateRiskRules` / `simulateWithFindings` in
+`src/domain/risk-rules.ts` (subject rules in `risk-subject-rules.ts`)
+evaluate five deterministic advisory rules: `SENSITIVE_PERMISSION`
+(high), `BROAD_ACCESS_INCREASE` (medium/high at 2× threshold),
+`UNEXPECTED_SUBJECT_IMPACT` (medium),
+`RISKY_INHERITANCE` (medium/high at ≥3 new perms),
+`PRIVILEGE_ESCALATION_PATTERN` (per-pattern severity). Config
+(`RiskRuleConfig`: sensitive values, broad-access threshold default 5,
+escalation patterns default `[]`) is explicit. Every finding carries
+rule ID, severity, subjects, evidence, and a "Candidate review"
+explanation — never a proven-vulnerability claim. Findings sort by
+`(ruleId, severity, subject)`; `findingCounts` reconcile.
+
+## 15. Non-goals
+
+No logic beyond Steps 09–16, no persistence, no
+Nest/MCP/HTTP imports in `src/domain/`. Application
+use cases (Step 17+) build on — never inside —
 these types.
