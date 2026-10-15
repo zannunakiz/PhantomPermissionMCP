@@ -1,11 +1,9 @@
-// Prisma schema for PhantomPermissionMCP (Step 19 — persistence setup).
+// Prisma schema for PhantomPermissionMCP.
 //
-// Step 19 owns ONLY the connection/migration plumbing. Domain tables
-// (tenants, API keys, access models, versions, simulations, reports,
-// audit events, idempotency keys) belong to Steps 20-23 and must be
-// added there — not here. This file intentionally declares no models
-// so `prisma validate/generate/migrate` can be verified end-to-end
-// before any table exists.
+// Step 19 (done): connection/migration plumbing.
+// Step 20 (this step): Tenant + ApiKey persistence boundary.
+// Steps 21-23 (pending): access models/versions, simulations/reports,
+// audit events, idempotency keys — not in this file yet.
 //
 // PostgreSQL is the sole v1 database (ADR-003). Connection details
 // live in `prisma.config.ts` (Prisma 7 requires URLs outside the
@@ -18,4 +16,49 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+// Tenant: the isolation boundary (overview §2, §8). Every persisted
+// resource belongs to exactly one tenant. IDs are app-assigned opaque
+// `tnt_…` strings (contracts §2), never auto-increment integers.
+model Tenant {
+  id        String   @id
+  name      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  apiKeys   ApiKey[]
+
+  @@index([createdAt])
+}
+
+// API-key lifecycle (ADR-007). Only the HMAC digest + safe prefix are
+// stored — never the raw `ppk_…` secret (threat model T3/T4).
+enum ApiKeyStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
+
+model ApiKey {
+  // Internal opaque row id — NOT the bearer secret.
+  id         String       @id
+  tenantId   String
+  tenant     Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  // Safe `ppk_…` prefix for log lookup; authenticates nothing alone.
+  keyPrefix  String
+  // HMAC-SHA-256(rawKey, serverPepper) hex. The only stored credential.
+  keyDigest  String       @unique
+  // Subset of the 6 v1 scopes (v1-contract §1); enforced in Step 27.
+  scopes     String[]
+  status     ApiKeyStatus @default(ACTIVE)
+  expiresAt  DateTime?
+  revokedAt  DateTime?
+  lastUsedAt DateTime?
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([keyPrefix])
+  @@index([expiresAt])
 }
