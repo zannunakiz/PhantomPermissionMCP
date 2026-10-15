@@ -56,7 +56,7 @@ async function bootstrap() {
     logger: bootstrapLogger,
     bodyParser: false,
   });
-  // Step 07: content-type guard + size-limited parsers + v1 error mapping
+  // Content-type guard + size-limited parsers + v1 error mapping
   // for malformed/oversized payloads. Applied before listen so every
   // route (current and future) is protected.
   setupHttpHandling(app, { requestBodyLimit: config.requestBodyLimit });

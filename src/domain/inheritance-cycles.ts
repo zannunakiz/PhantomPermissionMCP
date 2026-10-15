@@ -1,5 +1,5 @@
 /**
- * Inheritance cycle detection (Step 11).
+ * Inheritance cycle detection.
  *
  * Iterative depth-first search over the role inheritance graph, where an
  * edge `{ childRoleId, parentRoleId }` means the child gains the parent's
@@ -10,8 +10,9 @@
  * Resource bounds (from `DOMAIN_LIMITS`): at most 2000 edges and a
  * traversal depth of 25. Oversized graphs fail fast with
  * `limit_exceeded` instead of risking resource exhaustion. Unknown role
- * references are a Step 10 concern and are ignored here (edges pointing
- * outside the known role set are skipped, never treated as cycles).
+ * references are a structural-validation concern and are ignored here
+ * (edges pointing outside the known role set are skipped, never treated
+ * as cycles).
  *
  * Pure, deterministic, non-mutating. Details carry `{ path, reason }`
  * only — never echoed input values.
@@ -168,7 +169,7 @@ export function detectInheritanceCycle(
 }
 
 /**
- * Throwing guard: call after `assertValidStructure` and before Step 12
+ * Throwing guard: call after `assertValidStructure` and before
  * permission resolution so no cyclic model reaches the analysis paths.
  */
 export function assertAcyclicInheritance(snapshot: AccessModelSnapshot): void {

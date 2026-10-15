@@ -68,7 +68,7 @@ function firstString(value: unknown): string | undefined {
 }
 
 /**
- * Global REST error filter (Step 05; Step 06 adds error logging).
+ * Global REST error filter.
  *
  * Guarantees every 4xx/5xx leaves the service as the stable v1 envelope
  * `{ error: { code, message, status, details, requestId } }`.

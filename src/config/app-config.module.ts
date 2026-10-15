@@ -8,7 +8,7 @@ import { loadAppConfig } from './app-config';
  * `APP_CONFIG` token instead of reading `process.env` directly.
  * Validation runs at startup via `validate`; misconfiguration fails fast.
  *
- * Global so cross-cutting providers (e.g. the Step 05 global error
+ * Global so cross-cutting providers (e.g. the global error
  * filter in `ErrorsModule`) can inject `APP_CONFIG` without creating
  * a module cycle.
  */

@@ -1,5 +1,5 @@
 /**
- * Typed domain errors (Step 08).
+ * Typed domain errors.
  *
  * Plain TypeScript — no NestJS `HttpException`, no transport `AppError`.
  * Adapters (REST/MCP) map these codes to the shared snake_case contract

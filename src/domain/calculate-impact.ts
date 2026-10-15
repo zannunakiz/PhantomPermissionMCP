@@ -1,12 +1,12 @@
 /**
- * Permission impact simulation (Step 15).
+ * Permission impact simulation.
  *
  * Before/after analysis of an ordered operation list: resolve every
- * subject pre-change, apply immutably (Step 14), resolve post-change,
+ * subject pre-change, apply immutably, resolve post-change,
  * then diff per subject into sorted `added[]`/`removed[]` facts.
  * Only changed subjects appear in `impacts`/`affectedSubjects`.
  * Counts always reconcile with the detail records. Findings are facts,
- * never vulnerability claims — risk rules belong to Step 16, so
+ * never vulnerability claims — risk rules live in the findings module, so
  * `findingCounts` are zeroed here.
  *
  * Pure, deterministic, non-mutating. Only domain imports.

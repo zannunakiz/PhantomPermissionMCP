@@ -1,5 +1,5 @@
 /**
- * Explainable risk rules (Step 16), part 2a: subject rules.
+ * Explainable risk rules, part 2a: subject rules.
  */
 import type { ChangeOperation } from './operations';
 import type { RiskFinding, Severity } from './findings';

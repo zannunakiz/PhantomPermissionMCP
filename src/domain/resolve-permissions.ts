@@ -1,13 +1,13 @@
 /**
- * Effective permission resolution (Step 12).
+ * Effective permission resolution.
  *
  * Read-only analysis over a validated snapshot:
  * `effective(subject) = union of permissions bound to directly assigned
  * roles + all transitively inherited permissions`, deduplicated and
  * sorted lexicographically for determinism.
  *
- * Guards run first: `assertValidStructure` (Step 10) then
- * `assertAcyclicInheritance` (Step 11), so no invalid model reaches the
+ * Guards run first: `assertValidStructure` then
+ * `assertAcyclicInheritance`, so no invalid model reaches the
  * traversal. Unknown subjects throw `invalid_reference` rather than
  * returning `[]`, so typos never masquerade as "no access".
  *

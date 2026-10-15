@@ -1,5 +1,5 @@
 /**
- * Shared engine fixtures (Step 17).
+ * Shared engine fixtures.
  *
  * One documented shop model reused by gap-fill specs: two roles with
  * viewer → admin inheritance, two permissions, two subjects.

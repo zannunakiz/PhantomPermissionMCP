@@ -1,9 +1,9 @@
 /**
- * Documented domain limits (Step 08).
+ * Documented domain limits.
  *
  * Mirrors docs/api/v1-contract.md §2. Referenced by type documentation;
- * enforcement belongs to Steps 09–11 (runtime schemas, structural
- * validation, cycle detection). Keeping the numbers in one place prevents
+ * enforcement belongs to the runtime schemas, structural
+ * validation, and cycle detection. Keeping the numbers in one place prevents
  * drift between docs, schemas, and the engine.
  */
 

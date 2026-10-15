@@ -1,10 +1,10 @@
 /**
- * Immutable change application (Step 14).
+ * Immutable change application.
  *
  * Pure ordered application of validated operations against a working
  * clone: the input snapshot is never altered on success or failure.
- * Each operation is checked against the evolving draft (Step 13
- * `checkOperation`), so later operations observe earlier effects.
+ * Each operation is checked against the evolving draft
+ * (`checkOperation`), so later operations observe earlier effects.
  * Benign conflicts are recorded as no-ops; violations abort with the
  * failing index. A final structural + acyclicity revalidation guards
  * the result before it is returned.
@@ -152,7 +152,7 @@ export function applyOperations(
   return { ok: true, snapshot: view(), applied, noop };
 }
 
-/** Throwing convenience for Step 15 pipelines. */
+/** Throwing convenience for impact pipelines. */
 export function assertApplyOperations(
   snapshot: AccessModelSnapshot,
   operations: readonly ChangeOperation[],

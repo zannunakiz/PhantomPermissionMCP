@@ -1,5 +1,5 @@
 /**
- * Change-operation preconditions (Step 13), part 2a: inheritance checks.
+ * Change-operation preconditions, part 2a: inheritance checks.
  */
 import type { AccessModelSnapshot } from './access-model';
 import { DomainError } from './errors';

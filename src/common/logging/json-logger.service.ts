@@ -47,7 +47,7 @@ function toMessageText(message: unknown): string {
 }
 
 /**
- * Structured JSON logger (Step 06).
+ * Structured JSON logger.
  *
  * Extends the existing Nest `LoggerService` — no new dependency — and emits
  * one JSON object per line: `{ ts, level, msg, requestId?, context?, ... }`.

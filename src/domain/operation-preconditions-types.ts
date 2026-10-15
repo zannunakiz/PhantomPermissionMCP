@@ -1,5 +1,5 @@
 /**
- * Change-operation precondition outcome contract (Step 13).
+ * Change-operation precondition outcome contract.
  *
  * `apply`: preconditions met, will change state. `noop`: benign
  * conflict → no-op entry, never an error. `error`: precondition

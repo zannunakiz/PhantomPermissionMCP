@@ -1,5 +1,5 @@
 /**
- * Step 18 determinism helpers: seeded PRNG + generators.
+ * Determinism helpers: seeded PRNG + generators.
  *
  * No new dependencies: mulberry32 drives generated cases from fixed
  * seeds. Any failure prints its seed for exact reproduction.

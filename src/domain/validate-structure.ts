@@ -1,15 +1,15 @@
 /**
- * Structural validation for access-model snapshots (Step 10).
+ * Structural validation for access-model snapshots.
  *
  * Cross-array semantics over an already-parsed `AccessModelSnapshot`
- * (Step 09 output): duplicate names/values/pairs, dangling role /
+ * (schema output): duplicate names/values/pairs, dangling role /
  * permission / subject references, malformed identifiers, self-loops,
  * and empty models. Collects ALL actionable findings (index order,
  * capped) instead of stopping at the first failure.
  *
- * Step 10 / Step 11 boundary: only self-inheritance (`child === parent`)
+ * Cycle boundary: only self-inheritance (`child === parent`)
  * is flagged here as `inheritance_cycle`. Multi-node cycle-path
- * detection belongs to Step 11.
+ * detection lives in the cycle-detection module.
  *
  * Pure, deterministic, non-mutating. Details carry `{ path, reason }`
  * only — never echoed input values.
@@ -250,7 +250,7 @@ export function validateStructure(
 }
 
 /**
- * Throwing guard for Step 12+: call before permission resolution so no
+ * Throwing guard: call before permission resolution so no
  * invalid model reaches the analysis paths.
  */
 export function assertValidStructure(snapshot: AccessModelSnapshot): void {
