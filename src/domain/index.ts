@@ -64,3 +64,9 @@ export {
   proposedChangeDocumentSchema,
 } from './schemas';
 export type { AccessModelDocument, ProposedChangeDocument } from './schemas';
+export {
+  MAX_STRUCTURAL_FINDINGS,
+  assertValidStructure,
+  validateStructure,
+} from './validate-structure';
+export type { StructuralValidationResult } from './validate-structure';

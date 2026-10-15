@@ -93,9 +93,20 @@ Enforcement in Steps 09–11; this file is the single numeric source.
 - Failures throw `DomainError` with safe `{ path, reason }` details —
   never echoed values.
 
-## 8. Non-goals
+## 8. Structural validation (Step 10)
 
-No validation logic beyond Step 09 schemas, no persistence, no Nest/MCP/HTTP
-imports in `src/domain/`. Structural checks
-(Step 10), and cycle detection (Step 11) build on — never inside —
+`validateStructure(snapshot)` in `src/domain/validate-structure.ts`
+checks duplicate ids/names/values/pairs, dangling role/permission/
+subject references, malformed identifiers, self-inheritance, and empty
+models. Returns every actionable `{ path, reason }` finding in index
+order, capped at 100 with a trailing `too_many_findings` marker.
+`assertValidStructure()` throws the aggregated `DomainError` and is the
+required guard before Step 12 permission resolution. Multi-node cycle
+paths belong to Step 11.
+
+## 9. Non-goals
+
+No validation logic beyond Steps 09–10, no persistence, no Nest/MCP/HTTP
+imports in `src/domain/`. Cycle-path detection
+(Step 11) builds on — never inside —
 these types.
