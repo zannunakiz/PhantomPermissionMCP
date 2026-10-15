@@ -188,9 +188,20 @@ evidence reproducibility, end-to-end immutability) sit alongside the
 per-step suites. All domain tests run without DB, network, or
 external APIs.
 
-## 16. Non-goals
+## 16. Determinism and property tests (Step 18)
 
-No logic beyond Steps 09–17, no persistence, no
-Nest/MCP/HTTP imports in `src/domain/`. Property
-tests (Step 18) build on — never inside —
+`src/domain/determinism-helpers.ts` provides a seeded PRNG
+(mulberry32, seeds `1, 7, 42, 1337, 20261015`) plus generators.
+`determinism.spec.ts` proves ordering invariance, frozen-input
+immutability, dedupe, and diff reconciliation over 50 generated cases
+per seed. `determinism-cycles.spec.ts` proves generated DAGs pass and
+back-edges fail, plus a bounded perf case (200 roles / 800 perms /
+800 bindings / 199 edges / 200 subjects / 50 ops, depth 2 — all
+within `DOMAIN_LIMITS`, completes in <1s against a 30s bound).
+
+## 17. Non-goals
+
+No logic beyond Steps 09–18, no persistence, no
+Nest/MCP/HTTP imports in `src/domain/`. Persistence
+(Step 19+) builds on — never inside —
 these types.
