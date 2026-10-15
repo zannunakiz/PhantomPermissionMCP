@@ -43,7 +43,12 @@ const fakeKeyRepo = {
             tenantId: 'tnt_a',
             keyPrefix: RAW_A.slice(0, 12),
             keyDigest: d,
-            scopes: ['simulations:run', 'models:write', 'models:read'],
+            scopes: [
+              'simulations:run',
+              'simulations:read',
+              'models:write',
+              'models:read',
+            ],
             status: 'ACTIVE' as const,
             expiresAt: null,
             revokedAt: null,
@@ -96,18 +101,22 @@ const fakeVersionRepo = {
   create: () => Promise.reject(new Error('not used')),
 };
 
-const simRows: { id: string }[] = [];
+const simRows: Record<string, unknown>[] = [];
 const fakeSimRepo = {
-  findById: () => Promise.resolve(null),
+  findById: (tenantId: string, id: string) =>
+    Promise.resolve(
+      simRows.find((s) => s.id === id && s.tenantId === tenantId) ?? null,
+    ),
   listByTenant: () => Promise.resolve([]),
   listByModel: () => Promise.resolve([]),
-  create: (input: { id: string }) => {
-    simRows.push({ id: input.id });
-    return Promise.resolve({
+  create: (input: Record<string, unknown>) => {
+    const row = {
       ...input,
       status: 'COMPLETED' as const,
       createdAt: new Date(0),
-    });
+    };
+    simRows.push(row);
+    return Promise.resolve(row);
   },
 };
 
@@ -298,5 +307,73 @@ describe('POST /api/v1/simulations (e2e)', () => {
     expect((conflict.body as { error: { code: string } }).error.code).toBe(
       'idempotency_conflict',
     );
+  });
+
+  it('retrieves metadata and full report with provenance', async () => {
+    const created = await request(app.getHttpServer())
+      .post('/api/v1/simulations')
+      .set('Authorization', `Bearer ${RAW_A}`)
+      .send(GRANT)
+      .expect(201);
+    const id = (created.body as { id: string }).id;
+    const meta = await request(app.getHttpServer())
+      .get(`/api/v1/simulations/${id}`)
+      .set('Authorization', `Bearer ${RAW_A}`)
+      .expect(200);
+    const metaBody = meta.body as {
+      summary: unknown;
+      provenance: { modelId: string; version: number; contentHash: string };
+    };
+    expect(metaBody.provenance.modelId).toBe('mdl_sim_1');
+    expect(metaBody.provenance.version).toBe(1);
+    expect(typeof metaBody.summary).toBe('object');
+    const report = await request(app.getHttpServer())
+      .get(`/api/v1/simulations/${id}/report`)
+      .set('Authorization', `Bearer ${RAW_A}`)
+      .expect(200);
+    const reportBody = report.body as {
+      impacts: { subjectId: string; added: string[] }[];
+      findings: unknown[];
+      disclaimer: string;
+      provenance: { modelId: string };
+      page: { total: number };
+    };
+    expect(reportBody.impacts[0]?.subjectId).toBe('alice');
+    expect(reportBody.impacts[0]?.added).toContain('invoice:refund');
+    expect(Array.isArray(reportBody.findings)).toBe(true);
+    expect(reportBody.disclaimer).toBe('Findings are advisory only.');
+    expect(reportBody.provenance.modelId).toBe('mdl_sim_1');
+    const again = await request(app.getHttpServer())
+      .get(`/api/v1/simulations/${id}/report`)
+      .set('Authorization', `Bearer ${RAW_A}`)
+      .expect(200);
+    expect(again.body).toEqual(report.body);
+  });
+
+  it('denies bad ids, unknown sims, and enforces auth', async () => {
+    await request(app.getHttpServer())
+      .get('/api/v1/simulations/not_a_sim/report')
+      .set('Authorization', `Bearer ${RAW_A}`)
+      .expect(400);
+    await request(app.getHttpServer())
+      .get('/api/v1/simulations/sim_doesnotexist0001')
+      .set('Authorization', `Bearer ${RAW_A}`)
+      .expect(404);
+    const created = await request(app.getHttpServer())
+      .post('/api/v1/simulations')
+      .set('Authorization', `Bearer ${RAW_A}`)
+      .send(GRANT)
+      .expect(201);
+    const id = (created.body as { id: string }).id;
+    await request(app.getHttpServer())
+      .get(`/api/v1/simulations/${id}/report`)
+      .expect(401);
+    const sliced = await request(app.getHttpServer())
+      .get(`/api/v1/simulations/${id}/report?page=2&pageSize=1`)
+      .set('Authorization', `Bearer ${RAW_A}`)
+      .expect(200);
+    expect(
+      (sliced.body as { page: { page: number; pageSize: number } }).page,
+    ).toEqual({ page: 2, pageSize: 1, total: 1 });
   });
 });

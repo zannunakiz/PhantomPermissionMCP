@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { AppError } from '../common/errors/app-error';
+import { paginate, toISOString } from '../common/http';
+import type { PagedResult, PaginationQuery } from '../common/http';
 import { DomainError } from '../domain/errors';
 import type { AccessModelSnapshot } from '../domain/access-model';
 import type { ChangeOperation } from '../domain/operations';
@@ -25,6 +27,18 @@ const DISCLAIMER = 'Findings are advisory only.';
 
 function requestHash(body: CreateSimulationBody): string {
   return `sha256:${createHash('sha256').update(JSON.stringify(body)).digest('hex')}`;
+}
+
+function assertSimId(id: string): void {
+  if (!/^sim_[A-Za-z0-9_-]{1,120}$/.test(id)) {
+    throw new AppError('validation_failed', 'Invalid simulation id.', {
+      details: [{ path: 'id', reason: 'invalid_format' }],
+    });
+  }
+}
+
+function asArray(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? (value as Record<string, unknown>[]) : [];
 }
 
 function toDomainError(err: DomainError): AppError {
@@ -152,5 +166,69 @@ export class SimulationsService {
       }
     }
     return response;
+  }
+
+  private async loadSimulation(ctx: TenantContext, id: string) {
+    assertSimId(id);
+    const sim = await this.simulations.findById(ctx.tenantId, id);
+    if (!sim || sim.tenantId !== ctx.tenantId) {
+      throw new AppError('not_found', 'Simulation not found.');
+    }
+    return sim;
+  }
+
+  async getSimulation(
+    ctx: TenantContext,
+    id: string,
+  ): Promise<Record<string, unknown>> {
+    const sim = await this.loadSimulation(ctx, id);
+    return {
+      id: sim.id,
+      tenantId: sim.tenantId,
+      status: sim.status === 'COMPLETED' ? 'completed' : 'failed',
+      summary: sim.summary,
+      provenance: {
+        modelId: sim.modelId,
+        version: sim.version,
+        contentHash: sim.contentHash,
+        operations: sim.operations,
+        createdAt: toISOString(sim.createdAt),
+      },
+    };
+  }
+
+  async getReport(
+    ctx: TenantContext,
+    id: string,
+    query: PaginationQuery,
+  ): Promise<Record<string, unknown>> {
+    const sim = await this.loadSimulation(ctx, id);
+    const subjectOf = (row: Record<string, unknown>): string =>
+      typeof row.subjectId === 'string' ? row.subjectId : '';
+    const impacts = asArray(sim.impacts).sort((a, b) =>
+      subjectOf(a).localeCompare(subjectOf(b)),
+    );
+    const findings = asArray(sim.findings);
+    const pagedImpacts: PagedResult<Record<string, unknown>> = paginate(
+      impacts,
+      query,
+    );
+    return {
+      id: sim.id,
+      tenantId: sim.tenantId,
+      status: sim.status === 'COMPLETED' ? 'completed' : 'failed',
+      summary: sim.summary,
+      impacts: pagedImpacts.data,
+      page: pagedImpacts.page,
+      findings,
+      disclaimer: sim.disclaimer,
+      provenance: {
+        modelId: sim.modelId,
+        version: sim.version,
+        contentHash: sim.contentHash,
+        operations: sim.operations,
+        createdAt: toISOString(sim.createdAt),
+      },
+    };
   }
 }
