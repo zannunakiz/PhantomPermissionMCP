@@ -77,3 +77,7 @@ export {
   detectInheritanceCycle,
 } from './inheritance-cycles';
 export type { InheritanceCycleResult } from './inheritance-cycles';
+export {
+  resolveAllSubjects,
+  resolveSubjectPermissions,
+} from './resolve-permissions';

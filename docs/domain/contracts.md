@@ -115,9 +115,21 @@ parent links and returns the first cycle as an explicit node path
 skipped here. `assertAcyclicInheritance()` is the required guard before
 Step 12 resolution.
 
-## 10. Non-goals
+## 10. Permission resolution (Step 12)
 
-No validation logic beyond Steps 09–11, no persistence, no
-Nest/MCP/HTTP imports in `src/domain/`. Permission resolution
-(Step 12) builds on — never inside —
+`resolveSubjectPermissions(snapshot, subjectId)` and
+`resolveAllSubjects(snapshot)` in
+`src/domain/resolve-permissions.ts` compute
+`effective(subject) = union of directly bound + transitively inherited
+permission values`, deduplicated and sorted lexicographically.
+`assertValidStructure` + `assertAcyclicInheritance` run first, so no
+invalid model reaches traversal. Unknown subjects throw
+`invalid_reference`; subjects with no assignments resolve to `[]`.
+Pure, non-mutating, no clock/randomness.
+
+## 11. Non-goals
+
+No validation logic beyond Steps 09–12, no persistence, no
+Nest/MCP/HTTP imports in `src/domain/`. Operation
+preconditions (Step 13) build on — never inside —
 these types.
