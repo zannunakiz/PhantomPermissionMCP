@@ -17,3 +17,12 @@ export const createModelBodySchema = z
   .strict();
 
 export type CreateModelBody = z.infer<typeof createModelBodySchema>;
+
+export const createVersionBodySchema = z
+  .object({
+    snapshot: snapshotSchema,
+    expectedVersion: z.number().int().min(1).optional(),
+  })
+  .strict();
+
+export type CreateVersionBody = z.infer<typeof createVersionBodySchema>;

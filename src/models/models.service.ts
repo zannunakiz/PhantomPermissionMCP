@@ -16,7 +16,7 @@ import {
 import type { AccessModelRepository } from '../repositories/access-model.repository';
 import type { ModelVersionRepository } from '../repositories/model-version.repository';
 import type { TenantContext } from '../tenancy/tenant-context';
-import type { CreateModelBody } from './models.dto';
+import type { CreateModelBody, CreateVersionBody } from './models.dto';
 
 export type ModelSummary = {
   id: string;
@@ -46,6 +46,35 @@ function isUniqueViolation(err: unknown): boolean {
   return target.includes('tenantId') || target.includes('name');
 }
 
+function isVersionConflict(err: unknown): boolean {
+  const e = err as { code?: string; meta?: { target?: unknown } } | null;
+  if (!e || e.code !== 'P2002') return false;
+  const raw = e.meta?.target;
+  const target = Array.isArray(raw)
+    ? raw.map((t) => (typeof t === 'string' ? t : '')).join(',')
+    : typeof raw === 'string'
+      ? raw
+      : '';
+  return target.includes('modelId') && target.includes('version');
+}
+
+function validateSnapshot(raw: unknown): AccessModelSnapshot {
+  try {
+    const doc = parseAccessModelDocument({ schemaVersion: 1, snapshot: raw });
+    const snapshot = doc.snapshot as unknown as AccessModelSnapshot;
+    assertValidStructure(snapshot);
+    assertAcyclicInheritance(snapshot);
+    return snapshot;
+  } catch (err) {
+    if (err instanceof DomainError) {
+      throw new AppError('validation_failed', 'Access model is invalid.', {
+        details: err.details.map((d) => ({ ...d })),
+      });
+    }
+    throw err;
+  }
+}
+
 @Injectable()
 export class ModelsService {
   constructor(
@@ -57,23 +86,7 @@ export class ModelsService {
     ctx: TenantContext,
     body: CreateModelBody,
   ): Promise<CreatedModel> {
-    let snapshot: AccessModelSnapshot;
-    try {
-      const doc = parseAccessModelDocument({
-        schemaVersion: 1,
-        snapshot: body.snapshot,
-      });
-      snapshot = doc.snapshot as unknown as AccessModelSnapshot;
-      assertValidStructure(snapshot);
-      assertAcyclicInheritance(snapshot);
-    } catch (err) {
-      if (err instanceof DomainError) {
-        throw new AppError('validation_failed', 'Access model is invalid.', {
-          details: err.details.map((d) => ({ ...d })),
-        });
-      }
-      throw err;
-    }
+    const snapshot = validateSnapshot(body.snapshot);
     const canonical = JSON.stringify(snapshot);
     const contentHash = sha256Hex(canonical);
     const modelId = `mdl_${randomUUID().replace(/-/g, '').slice(0, 24)}`;
@@ -194,5 +207,68 @@ export class ModelsService {
       version: ver.version,
       contentHash: ver.contentHash,
     };
+  }
+
+  async createVersion(
+    ctx: TenantContext,
+    id: string,
+    body: CreateVersionBody,
+    ifMatch?: string,
+  ): Promise<{ version: number; contentHash: string }> {
+    if (!/^mdl_[A-Za-z0-9_-]{1,120}$/.test(id)) {
+      throw new AppError('validation_failed', 'Invalid model id.', {
+        details: [{ path: 'id', reason: 'invalid_format' }],
+      });
+    }
+    const snapshot = validateSnapshot(body.snapshot);
+    const model = await this.models.findById(ctx.tenantId, id);
+    assertModelInTenant(model, ctx.tenantId);
+    if (ifMatch !== undefined) {
+      const current = await this.versions.findByModelVersion(
+        ctx.tenantId,
+        model.id,
+        model.currentVersion,
+      );
+      const etag = current ? `"${current.contentHash}"` : undefined;
+      const want = ifMatch.trim();
+      if (etag === undefined || (want !== '*' && want !== etag)) {
+        throw new AppError('conflict_version', 'Model version is stale.', {
+          details: [{ path: 'expectedVersion', reason: 'stale' }],
+        });
+      }
+    }
+    if (
+      body.expectedVersion !== undefined &&
+      body.expectedVersion !== model.currentVersion
+    ) {
+      throw new AppError('conflict_version', 'Model version is stale.', {
+        details: [{ path: 'expectedVersion', reason: 'stale' }],
+      });
+    }
+    const next = model.currentVersion + 1;
+    const contentHash = sha256Hex(JSON.stringify(snapshot));
+    try {
+      const row = await this.versions.create({
+        id: `mdlver_${randomUUID().replace(/-/g, '').slice(0, 24)}`,
+        modelId: model.id,
+        tenantId: ctx.tenantId,
+        version: next,
+        contentHash,
+        snapshot: snapshot,
+        operationCount: 0,
+      });
+      return { version: row.version, contentHash: row.contentHash };
+    } catch (err) {
+      if (isVersionConflict(err)) {
+        throw new AppError(
+          'conflict_version',
+          'Model version already exists.',
+          {
+            details: [{ path: 'version', reason: 'duplicate' }],
+          },
+        );
+      }
+      throw err;
+    }
   }
 }

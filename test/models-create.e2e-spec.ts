@@ -317,4 +317,49 @@ describe('POST /api/v1/models (e2e)', () => {
       .set('Authorization', `Bearer ${RAW_B}`)
       .expect(404);
   });
+
+  it('creates version 2, rejects stale writes, preserves v1', async () => {
+    const created = await createAs(RAW_A, 'versioned');
+    const v2snap = {
+      ...SNAPSHOT,
+      roles: [...SNAPSHOT.roles, { id: 'admin', name: 'admin' }],
+    };
+    const v2 = await request(app.getHttpServer())
+      .post(`/api/v1/models/${created.id}/versions`)
+      .set('Authorization', `Bearer ${RAW_A}`)
+      .send({ snapshot: v2snap, expectedVersion: 1 })
+      .expect(201);
+    expect((v2.body as { version: number }).version).toBe(2);
+    modelRows.find((m) => m.id === created.id)!.currentVersion = 2;
+    const stale = await request(app.getHttpServer())
+      .post(`/api/v1/models/${created.id}/versions`)
+      .set('Authorization', `Bearer ${RAW_A}`)
+      .send({ snapshot: v2snap, expectedVersion: 1 })
+      .expect(409);
+    expect((stale.body as { error: { code: string } }).error.code).toBe(
+      'conflict_version',
+    );
+    const bad = await request(app.getHttpServer())
+      .post(`/api/v1/models/${created.id}/versions`)
+      .set('Authorization', `Bearer ${RAW_A}`)
+      .send({ snapshot: { roles: [] }, expectedVersion: 2 })
+      .expect(400);
+    expect((bad.body as { error: { code: string } }).error.code).toBe(
+      'validation_failed',
+    );
+    const v1 = await request(app.getHttpServer())
+      .get(`/api/v1/models/${created.id}?version=1`)
+      .set('Authorization', `Bearer ${RAW_A}`)
+      .expect(200);
+    expect((v1.body as { version: number }).version).toBe(1);
+    const badEtag = await request(app.getHttpServer())
+      .post(`/api/v1/models/${created.id}/versions`)
+      .set('Authorization', `Bearer ${RAW_A}`)
+      .set('If-Match', '"sha256:dead"')
+      .send({ snapshot: v2snap })
+      .expect(409);
+    expect((badEtag.body as { error: { code: string } }).error.code).toBe(
+      'conflict_version',
+    );
+  });
 });
