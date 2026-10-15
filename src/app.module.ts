@@ -6,6 +6,7 @@ import { LoggingModule, RequestIdMiddleware } from './common/logging';
 import { AppConfigModule } from './config';
 import { AuthModule } from './auth/auth.module';
 import { HealthModule } from './health';
+import { ModelsModule } from './models/models.module';
 import { PrismaModule } from './persistence';
 import { RepositoriesModule } from './repositories';
 
@@ -18,6 +19,7 @@ import { RepositoriesModule } from './repositories';
     RepositoriesModule,
     AuthModule,
     HealthModule,
+    ModelsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
