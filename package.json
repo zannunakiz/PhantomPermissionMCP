@@ -30,6 +30,7 @@
     "docs:openapi": "ts-node --transpile-only scripts/export-openapi.ts",
     "mcp:serve": "ts-node --transpile-only scripts/mcp-serve.ts",
     "mcp:smoke": "ts-node --transpile-only scripts/mcp-smoke.ts",
+    "mcp:stdio-smoke": "ts-node --transpile-only scripts/mcp-stdio-smoke.ts",
     "prisma:generate": "prisma generate",
     "prisma:validate": "prisma validate",
     "prisma:migrate:dev": "prisma migrate dev",
