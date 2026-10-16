@@ -27,6 +27,10 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "test:integration": "jest --config ./test/jest-integration.json --runInBand",
+    "docs:openapi": "ts-node --transpile-only scripts/export-openapi.ts",
+    "mcp:serve": "ts-node --transpile-only scripts/mcp-serve.ts",
+    "mcp:smoke": "ts-node --transpile-only scripts/mcp-smoke.ts",
+    "mcp:stdio-smoke": "ts-node --transpile-only scripts/mcp-stdio-smoke.ts",
     "prisma:generate": "prisma generate",
     "prisma:validate": "prisma validate",
     "prisma:migrate:dev": "prisma migrate dev",
@@ -42,17 +46,20 @@
     "key:rotate": "ts-node --transpile-only src/auth/provision.cli.ts key:rotate"
   },
   "dependencies": {
+    "@modelcontextprotocol/client": "^2.3.1",
+    "@modelcontextprotocol/server": "^2.3.1",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.0.1",
     "@nestjs/platform-express": "^11.0.1",
+    "@nestjs/swagger": "^11.4.7",
     "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^7.10.0",
     "dotenv": "^18.0.8",
     "pg": "^8.23.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",

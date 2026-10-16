@@ -1,0 +1,260 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/": {
+      "get": {
+        "operationId": "AppController_getHello",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "App"
+        ]
+      }
+    },
+    "/health/live": {
+      "get": {
+        "operationId": "HealthController_live",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Health"
+        ]
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "operationId": "HealthController_ready",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Health"
+        ]
+      }
+    },
+    "/api/v1/models": {
+      "post": {
+        "operationId": "ModelsController_create",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Models"
+        ]
+      },
+      "get": {
+        "operationId": "ModelsController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Models"
+        ]
+      }
+    },
+    "/api/v1/models/{id}": {
+      "get": {
+        "operationId": "ModelsController_detail",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Models"
+        ]
+      }
+    },
+    "/api/v1/models/{id}/versions": {
+      "post": {
+        "operationId": "ModelsController_createVersion",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "if-match",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Models"
+        ]
+      }
+    },
+    "/api/v1/simulations": {
+      "post": {
+        "operationId": "SimulationsController_create",
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Simulations"
+        ]
+      }
+    },
+    "/api/v1/simulations/{id}": {
+      "get": {
+        "operationId": "SimulationsController_detail",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Simulations"
+        ]
+      }
+    },
+    "/api/v1/simulations/{id}/report": {
+      "get": {
+        "operationId": "SimulationsController_report",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Simulations"
+        ]
+      }
+    },
+    "/api/v1/simulations/{id}/export": {
+      "get": {
+        "operationId": "SimulationsController_export",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "format",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Simulations"
+        ]
+      }
+    },
+    "/api/v1/audit-events": {
+      "get": {
+        "operationId": "AuditController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Audit"
+        ]
+      }
+    }
+  },
+  "info": {
+    "title": "PhantomPermissionMCP",
+    "description": "Read-only RBAC change-impact analysis backend. Base path: `/api/v1` (health: `/health`).\n\nAuth: `Authorization: Bearer ppk_<secret>` — API keys are shown once at issuance; only digests are persisted. Never send real keys to docs tooling.\nScopes: models:read, models:write, simulations:run, simulations:read, exports:read, audit:read. Missing auth → 401 `unauthorized`; wrong scope → 403 `forbidden_scope`; cross-tenant access → 403 `tenant_forbidden`.\n\nError envelope: `{ error: { code, message, requestId } }`. Stable codes: validation_failed, unauthorized, forbidden_scope, tenant_forbidden, not_found, conflict_version, idempotency_conflict, payload_too_large, rate_limited, internal_error.\n\nPagination: `?page>=1&limit=1..100` (+ resource `orderBy`/`order` where offered); stable ordering, bounded limits; invalid params → 400 `validation_failed`.\n\nIdempotency: `POST /api/v1/simulations` accepts optional `Idempotency-Key`; replays return the original result; mismatched payload → 409 `idempotency_conflict`.\n\nConcurrency: `POST /api/v1/models/:id/versions` accepts optional `If-Match: <version>`; stale writes → 409 `conflict_version`; snapshots are never updated in place.\n\nExamples: create model → `POST /api/v1/models {\"name\":\"acme-prod\",\"content\":{...}}` → 201 with model id + version 1. Simulate → `POST /api/v1/simulations {\"modelId\":\"...\",\"operations\":[...]}` → 201 with simulation id + impact summary.",
+    "version": "1.0",
+    "contact": {}
+  },
+  "tags": [],
+  "servers": [],
+  "components": {
+    "securitySchemes": {
+      "api-key": {
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "type": "http",
+        "description": "API key (`ppk_…`)."
+      }
+    },
+    "schemas": {}
+  }
+}
