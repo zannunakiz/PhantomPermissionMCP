@@ -4,11 +4,7 @@ import { AppError } from '../common/errors/app-error';
 import { paginate, toISOString } from '../common/http';
 import type { PagedResult, PaginationQuery } from '../common/http';
 import { assertModelInTenant } from '../tenancy/tenant-scope';
-import { DomainError } from '../domain/errors';
-import { assertAcyclicInheritance } from '../domain/inheritance-cycles';
-import { parseAccessModelDocument } from '../domain/schemas';
-import { assertValidStructure } from '../domain/validate-structure';
-import type { AccessModelSnapshot } from '../domain/access-model';
+import { validateSnapshot } from './validate-snapshot';
 import {
   ACCESS_MODEL_REPOSITORY as AMR,
   MODEL_VERSION_REPOSITORY as MVR,
@@ -56,23 +52,6 @@ function isVersionConflict(err: unknown): boolean {
       ? raw
       : '';
   return target.includes('modelId') && target.includes('version');
-}
-
-function validateSnapshot(raw: unknown): AccessModelSnapshot {
-  try {
-    const doc = parseAccessModelDocument({ schemaVersion: 1, snapshot: raw });
-    const snapshot = doc.snapshot as unknown as AccessModelSnapshot;
-    assertValidStructure(snapshot);
-    assertAcyclicInheritance(snapshot);
-    return snapshot;
-  } catch (err) {
-    if (err instanceof DomainError) {
-      throw new AppError('validation_failed', 'Access model is invalid.', {
-        details: err.details.map((d) => ({ ...d })),
-      });
-    }
-    throw err;
-  }
 }
 
 @Injectable()
