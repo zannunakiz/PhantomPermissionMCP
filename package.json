@@ -29,6 +29,7 @@
     "test:integration": "jest --config ./test/jest-integration.json --runInBand",
     "docs:openapi": "ts-node --transpile-only scripts/export-openapi.ts",
     "mcp:serve": "ts-node --transpile-only scripts/mcp-serve.ts",
+    "mcp:smoke": "ts-node --transpile-only scripts/mcp-smoke.ts",
     "prisma:generate": "prisma generate",
     "prisma:validate": "prisma validate",
     "prisma:migrate:dev": "prisma migrate dev",

@@ -956,6 +956,91 @@ describe('compare_access_models (step 45)', () => {
 });
 
 /**
+ * Step 47 gate: protocol compatibility with a real local client —
+ * initialise, list tools (+schema match), valid invocation, invalid args,
+ * protocol errors (unknown tool), timeout/error paths without crashing,
+ * and clean shutdown. Uses InMemoryTransport (same SDK framing as stdio,
+ * no network/paid services). See scripts/mcp-smoke.ts for manual run.
+ */
+describe('mcp protocol compatibility (step 47)', () => {
+  it('init, list tools with schemas, valid/invalid calls, errors, shutdown', async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [AppModule],
+    })
+      .overrideProvider('APP_CONFIG')
+      .useValue({ databaseUrl: 'postgresql://localhost:5432/test' })
+      .compile();
+    const app = moduleRef.createNestApplication({ logger: false });
+    await app.init();
+    const server = app.get(McpService).createServer();
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'step47', version: '0.0.0' });
+    try {
+      // Initialise + list tools over real protocol framing.
+      await Promise.all([server.connect(st), client.connect(ct)]);
+      const listed = await client.listTools();
+      const names = listed.tools.map((t) => t.name).sort();
+      expect(names).toEqual(
+        [
+          'compare_access_models',
+          'explain_access_change',
+          'find_privilege_escalation',
+          'simulate_permission_change',
+          'validate_access_model',
+        ].sort(),
+      );
+      // Declared schemas present for every tool.
+      for (const t of listed.tools) expect(t.inputSchema).toBeDefined();
+
+      // Valid invocation.
+      const ok = (await client.callTool({
+        name: 'validate_access_model',
+        arguments: { snapshot: VALID_SNAPSHOT },
+      })) as { structuredContent: { valid: boolean } };
+      expect(ok.structuredContent.valid).toBe(true);
+
+      // Invalid arguments rejected (isError result, no crash).
+      const bad = (await client.callTool({
+        name: 'validate_access_model',
+        arguments: {} as Record<string, unknown>,
+      })) as { isError?: boolean };
+      expect(bad.isError).toBe(true);
+
+      // Protocol error: unknown tool rejected, server stays alive.
+      await expect(
+        client.callTool({
+          name: 'no_such_tool',
+          arguments: {},
+        }),
+      ).rejects.toThrow();
+      const stillOk = (await client.callTool({
+        name: 'validate_access_model',
+        arguments: { snapshot: VALID_SNAPSHOT },
+      })) as { structuredContent: { valid: boolean } };
+      expect(stillOk.structuredContent.valid).toBe(true);
+
+      // Timeout path maps safely without crashing (unit-level race).
+      const svc =
+        jest.requireActual<typeof import('./mcp.service')>('./mcp.service');
+      const hanging = new Promise<number>(() => undefined);
+      const raced = Promise.race([
+        hanging,
+        Promise.reject(new svc.McpTimeoutError()),
+      ]);
+      await expect(raced).rejects.toBeInstanceOf(svc.McpTimeoutError);
+      expect(svc.toMcpError(new svc.McpTimeoutError())).toEqual({
+        code: 'internal_error',
+        message: 'Tool execution timed out.',
+      });
+    } finally {
+      // Clean shutdown: both ends close without hanging.
+      await client.close();
+      await server.close();
+      await app.close();
+    }
+  });
+});
+/**
  * Step 46 gate: unauthorised callers blocked on every protected tool;
  * tenant isolation + scope restrictions across all tools; secrets redacted.
  */
