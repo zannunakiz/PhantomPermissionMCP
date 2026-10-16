@@ -6,6 +6,7 @@ import { LoggingModule, RequestIdMiddleware } from './common/logging';
 import { AppConfigModule } from './config';
 import { AuthModule } from './auth/auth.module';
 import { HealthModule } from './health';
+import { MetricsModule } from './metrics';
 import { McpModule } from './mcp/mcp.module';
 import { ModelsModule } from './models/models.module';
 import { SimulationsModule } from './simulations/simulations.module';
@@ -22,6 +23,7 @@ import { RepositoriesModule } from './repositories';
     RepositoriesModule,
     AuthModule,
     HealthModule,
+    MetricsModule,
     ModelsModule,
     SimulationsModule,
     AuditModule,
