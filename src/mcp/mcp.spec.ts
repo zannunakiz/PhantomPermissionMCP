@@ -4,6 +4,14 @@ import { Test } from '@nestjs/testing';
 import { Client } from '@modelcontextprotocol/client';
 import { InMemoryTransport } from '@modelcontextprotocol/server';
 import { AppModule } from '../app.module';
+import { digestKey } from '../auth/api-key';
+import {
+  ACCESS_MODEL_REPOSITORY,
+  API_KEY_REPOSITORY,
+  IDEMPOTENCY_REPOSITORY,
+  MODEL_VERSION_REPOSITORY,
+  SIMULATION_REPOSITORY,
+} from '../repositories/tokens';
 import { McpService } from './mcp.service';
 
 /**
@@ -122,5 +130,242 @@ describe('validate_access_model (step 41)', () => {
     const b = await callTool({ snapshot: VALID_SNAPSHOT });
     expect(a.structuredContent).toEqual(b.structuredContent);
     expect(a.content[0].text).toBe(b.content[0].text);
+  });
+});
+
+const PEPPER42 = 'e2e-pepper-42';
+const SNAP42 = {
+  roles: [
+    { id: 'viewer', name: 'viewer' },
+    { id: 'admin', name: 'admin' },
+  ],
+  permissions: [
+    { id: 'invoice:read', value: 'invoice:read' },
+    { id: 'invoice:refund', value: 'invoice:refund' },
+  ],
+  bindings: [
+    { roleId: 'viewer', permissionId: 'invoice:read' },
+    { roleId: 'admin', permissionId: 'invoice:refund' },
+  ],
+  inheritance: [],
+  assignments: [{ subjectId: 'alice', roleId: 'viewer' }],
+  subjects: [{ id: 'alice' }],
+};
+const VER42 = {
+  id: 'ver_42',
+  modelId: 'mdl_sim42',
+  tenantId: 'tnt_a',
+  version: 1,
+  contentHash: 'sha256:abc',
+  snapshot: SNAP42,
+  operationCount: 0,
+  createdAt: new Date(0),
+};
+
+function keyRow42(raw: string, tenantId: string, scopes: string[]) {
+  return {
+    id: `key_${tenantId}`,
+    tenantId,
+    keyPrefix: raw.slice(0, 12),
+    keyDigest: digestKey(raw, PEPPER42),
+    scopes,
+    status: 'ACTIVE' as const,
+    expiresAt: null,
+    revokedAt: null,
+    lastUsedAt: null,
+    createdAt: new Date(0),
+    updatedAt: new Date(0),
+  };
+}
+
+/**
+ * Step 42 gate: success, rejected changes, missing permissions,
+ * cross-tenant references, and consistency with REST.
+ */
+describe('simulate_permission_change (step 42)', () => {
+  const RAW_A = `ppk_${'j'.repeat(40)}`;
+  const RAW_B = `ppk_${'k'.repeat(40)}`;
+  const RAW_NOSCOPE = `ppk_${'l'.repeat(40)}`;
+  let client: Client;
+  let app: INestApplication;
+  const simRows: Record<string, unknown>[] = [];
+
+  const buildModule = (scopesA: string[]) =>
+    Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(API_KEY_REPOSITORY)
+      .useValue({
+        findByDigest: (d: string) =>
+          Promise.resolve(
+            [
+              keyRow42(RAW_A, 'tnt_a', scopesA),
+              keyRow42(RAW_B, 'tnt_b', ['simulations:run', 'simulations:read']),
+              keyRow42(RAW_NOSCOPE, 'tnt_a', ['models:read']),
+            ].find((k) => k.keyDigest === d) ?? null,
+          ),
+        listByTenant: () => Promise.resolve([]),
+        create: () => Promise.reject(new Error('not used')),
+        updateStatus: () => Promise.resolve(null),
+        touchLastUsed: () => Promise.resolve(),
+      })
+      .overrideProvider(ACCESS_MODEL_REPOSITORY)
+      .useValue({
+        findById: (t: string, id: string) =>
+          Promise.resolve(
+            id === 'mdl_sim42' && t === 'tnt_a'
+              ? {
+                  id,
+                  tenantId: t,
+                  name: 'm',
+                  currentVersion: 1,
+                  createdAt: new Date(0),
+                  updatedAt: new Date(0),
+                }
+              : null,
+          ),
+        listByTenant: () => Promise.resolve([]),
+        create: () => Promise.reject(new Error('not used')),
+      })
+      .overrideProvider(MODEL_VERSION_REPOSITORY)
+      .useValue({
+        findByModelVersion: (t: string, m: string, v: number) =>
+          Promise.resolve(
+            t === 'tnt_a' && m === 'mdl_sim42' && v === 1 ? VER42 : null,
+          ),
+        listByModel: () => Promise.resolve([VER42]),
+        create: () => Promise.reject(new Error('not used')),
+      })
+      .overrideProvider(SIMULATION_REPOSITORY)
+      .useValue({
+        findById: () => Promise.resolve(null),
+        listByTenant: () => Promise.resolve([]),
+        listByModel: () => Promise.resolve([]),
+        create: (input: Record<string, unknown>) => {
+          const row = { ...input, status: 'COMPLETED', createdAt: new Date(0) };
+          simRows.push(row);
+          return Promise.resolve(row);
+        },
+      })
+      .overrideProvider(IDEMPOTENCY_REPOSITORY)
+      .useValue({
+        findByKey: () => Promise.resolve(null),
+        create: (input: unknown) =>
+          Promise.resolve({
+            id: 'idem_1',
+            ...(input as Record<string, unknown>),
+          }),
+        deleteExpired: () => Promise.resolve(0),
+      })
+      .overrideProvider('APP_CONFIG')
+      .useValue({
+        apiKeyPepper: PEPPER42,
+        nodeEnv: 'test',
+        databaseUrl: 'postgresql://localhost:5432/test',
+      });
+
+  const connect = async (scopesA: string[]) => {
+    const moduleRef = await buildModule(scopesA).compile();
+    app = moduleRef.createNestApplication({ logger: false });
+    await app.init();
+    const server = app.get(McpService).createServer();
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    client = new Client({ name: 'step42', version: '0.0.0' });
+    await Promise.all([server.connect(st), client.connect(ct)]);
+  };
+  const close = async () => {
+    await client.close();
+    await app.close();
+  };
+  const callSim = (args: Record<string, unknown>) =>
+    client.callTool({
+      name: 'simulate_permission_change',
+      arguments: args,
+    }) as Promise<{
+      structuredContent: Record<string, unknown>;
+      isError?: boolean;
+    }>;
+  const GRANT = {
+    modelId: 'mdl_sim42',
+    operations: [
+      {
+        type: 'grant_permission',
+        roleId: 'viewer',
+        permissionId: 'invoice:refund',
+      },
+    ],
+  };
+
+  beforeEach(() => (simRows.length = 0));
+
+  it('lists the tool', async () => {
+    await connect(['simulations:run']);
+    try {
+      const tools = await client.listTools();
+      expect(tools.tools.map((t) => t.name)).toContain(
+        'simulate_permission_change',
+      );
+    } finally {
+      await close();
+    }
+  });
+
+  it('succeeds and persists like REST', async () => {
+    await connect(['simulations:run']);
+    try {
+      const res = await callSim({ ...GRANT, apiKey: RAW_A });
+      expect(res.isError).toBeFalsy();
+      expect(res.structuredContent.status).toBe('completed');
+      expect(typeof res.structuredContent.id).toBe('string');
+      expect(res.structuredContent.summary).toBeDefined();
+      expect(simRows.length).toBe(1);
+      expect(simRows[0].tenantId).toBe('tnt_a');
+    } finally {
+      await close();
+    }
+  });
+
+  it('rejects invalid changes with validation_failed', async () => {
+    await connect(['simulations:run']);
+    try {
+      const res = await callSim({
+        modelId: 'mdl_sim42',
+        operations: [
+          {
+            type: 'grant_permission',
+            roleId: 'nope',
+            permissionId: 'invoice:read',
+          },
+        ],
+        apiKey: RAW_A,
+      });
+      expect(res.isError).toBe(true);
+      expect(res.structuredContent.code).toBe('validation_failed');
+    } finally {
+      await close();
+    }
+  });
+
+  it('denies missing scope and bad keys', async () => {
+    await connect(['simulations:run']);
+    try {
+      const noscope = await callSim({ ...GRANT, apiKey: RAW_NOSCOPE });
+      expect(noscope.isError).toBe(true);
+      expect(noscope.structuredContent.code).toBe('forbidden_scope');
+      const bad = await callSim({ ...GRANT, apiKey: `ppk_${'z'.repeat(40)}` });
+      expect(bad.isError).toBe(true);
+      expect(bad.structuredContent.code).toBe('unauthorized');
+    } finally {
+      await close();
+    }
+  });
+
+  it('denies cross-tenant model references', async () => {
+    await connect(['simulations:run']);
+    try {
+      const res = await callSim({ ...GRANT, apiKey: RAW_B });
+      expect(res.isError).toBe(true);
+      expect(res.structuredContent.code).toBe('not_found');
+    } finally {
+      await close();
+    }
   });
 });

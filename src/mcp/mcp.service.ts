@@ -15,7 +15,10 @@ import { McpServer } from '@modelcontextprotocol/server';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import { z } from 'zod';
 import { AppError } from '../common/errors/app-error';
+import { AuthService } from '../auth/auth.service';
 import { validateSnapshot } from '../models/validate-snapshot';
+import { createSimulationBodySchema } from '../simulations/simulations.dto';
+import { SimulationsService } from '../simulations/simulations.service';
 
 /** Strict input: a raw access-model snapshot object (same shape REST takes). */
 const validateInputSchema = z
@@ -49,8 +52,34 @@ export function toValidationResult(raw: unknown): {
   }
 }
 
+/** Strict input: same fields REST takes, plus bearer auth for identity. */
+const simulateInputSchema = createSimulationBodySchema
+  .extend({ apiKey: z.string().min(1).max(256) })
+  .strict();
+
+/**
+ * Step 42 — `simulate_permission_change` MCP tool.
+ * Thin handler: verifies the API key (`AuthService.verify`, requiring
+ * `simulations:run`), then delegates to the same
+ * `SimulationsService.createSimulation` REST uses — same scope, limits,
+ * persistence, and tenant rules. AppErrors surface as `isError` results
+ * with `{ code, message }` (safe contract codes, no secrets).
+ */
+export function toMcpError(err: unknown): {
+  code: string;
+  message: string;
+} {
+  if (err instanceof AppError) return { code: err.code, message: err.message };
+  throw err;
+}
+
 @Injectable()
 export class McpService {
+  constructor(
+    private readonly auth: AuthService,
+    private readonly simulations: SimulationsService,
+  ) {}
+
   createServer(): McpServer {
     const server = new McpServer({
       name: 'phantom-permission-mcp',
@@ -69,6 +98,32 @@ export class McpService {
           content: [{ type: 'text', text: JSON.stringify(result) }],
           structuredContent: result,
         };
+      },
+    );
+    server.registerTool(
+      'simulate_permission_change',
+      {
+        description:
+          'Simulate proposed permission changes on an authorised model/version. Returns { id, status, summary }.',
+        inputSchema: simulateInputSchema,
+      },
+      async ({ apiKey, ...body }) => {
+        try {
+          const ctx = await this.auth.verify(`Bearer ${apiKey}`);
+          this.auth.requireScope(ctx, 'simulations:run');
+          const result = await this.simulations.createSimulation(ctx, body);
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result) }],
+            structuredContent: result,
+          };
+        } catch (err) {
+          const e = toMcpError(err);
+          return {
+            content: [{ type: 'text', text: JSON.stringify(e) }],
+            structuredContent: e,
+            isError: true,
+          };
+        }
       },
     );
     return server;
