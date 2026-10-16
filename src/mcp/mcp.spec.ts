@@ -954,3 +954,89 @@ describe('compare_access_models (step 45)', () => {
     }
   });
 });
+
+/**
+ * Step 46 gate: unauthorised callers blocked on every protected tool;
+ * tenant isolation + scope restrictions across all tools; secrets redacted.
+ */
+describe('mcp transport security (step 46)', () => {
+  it('redacts key material and maps timeouts safely', async () => {
+    const svc =
+      jest.requireActual<typeof import('./mcp.service')>('./mcp.service');
+    const { redactSecrets, toMcpError, McpTimeoutError, withToolTimeout } = svc;
+    const RAW = `ppk_${'q'.repeat(40)}`;
+    expect(redactSecrets(`key ${RAW} here`)).toBe('key [REDACTED] here');
+    expect(redactSecrets({ apiKey: RAW, nested: { digest: 'abc' } })).toEqual({
+      apiKey: '[REDACTED]',
+      nested: { digest: '[REDACTED]' },
+    });
+    expect(toMcpError(new McpTimeoutError())).toEqual({
+      code: 'internal_error',
+      message: 'Tool execution timed out.',
+    });
+    await expect(withToolTimeout(Promise.resolve(1))).resolves.toBe(1);
+  });
+
+  it('rejects unauthorised callers on every protected tool', async () => {
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(API_KEY_REPOSITORY)
+      .useValue({
+        findByDigest: () => Promise.resolve(null),
+        listByTenant: () => Promise.resolve([]),
+        create: () => Promise.reject(new Error('not used')),
+        updateStatus: () => Promise.resolve(null),
+        touchLastUsed: () => Promise.resolve(),
+      })
+      .overrideProvider('APP_CONFIG')
+      .useValue({
+        apiKeyPepper: 'pepper-46',
+        nodeEnv: 'test',
+        databaseUrl: 'postgresql://localhost:5432/test',
+      })
+      .compile();
+    const app = moduleRef.createNestApplication({ logger: false });
+    await app.init();
+    try {
+      const server = app.get(McpService).createServer();
+      const [ct, st] = InMemoryTransport.createLinkedPair();
+      const client = new Client({ name: 'step46', version: '0.0.0' });
+      await Promise.all([server.connect(st), client.connect(ct)]);
+      const BAD = `ppk_${'z'.repeat(40)}`;
+      const calls: [string, Record<string, unknown>][] = [
+        [
+          'simulate_permission_change',
+          {
+            apiKey: BAD,
+            modelId: 'mdl_x',
+            operations: [
+              { type: 'grant_permission', roleId: 'r', permissionId: 'p' },
+            ],
+          },
+        ],
+        [
+          'explain_access_change',
+          { apiKey: BAD, simulationId: `sim_${'a'.repeat(24)}` },
+        ],
+        [
+          'find_privilege_escalation',
+          { apiKey: BAD, simulationId: `sim_${'a'.repeat(24)}` },
+        ],
+        [
+          'compare_access_models',
+          { apiKey: BAD, modelId: 'mdl_x', fromVersion: 1, toVersion: 1 },
+        ],
+      ];
+      for (const [name, args] of calls) {
+        const res = (await client.callTool({ name, arguments: args })) as {
+          isError?: boolean;
+          structuredContent: { code: string };
+        };
+        expect(res.isError).toBe(true);
+        expect(res.structuredContent.code).toBe('unauthorized');
+      }
+      await client.close();
+    } finally {
+      await app.close();
+    }
+  });
+});

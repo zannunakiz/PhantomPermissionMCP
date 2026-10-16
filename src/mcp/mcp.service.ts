@@ -1,5 +1,6 @@
 /**
  * Step 40 — thin MCP adapter (NestJS module + stdio server factory).
+ * Step 46 — transport security + identity mapping.
  *
  * SDK: `@modelcontextprotocol/server` v2 (official TypeScript SDK,
  * implements MCP spec 2026-07-28). Transport: stdio (`StdioServerTransport`
@@ -9,6 +10,26 @@
  * `McpService.createServer()` builds an `McpServer` with no domain logic
  * inside transport handlers — tools registered in Steps 41+ call the same
  * application services as REST. Run: `npm run mcp:serve` (stdio).
+ *
+ * Auth model (same tenant/permissions model as REST): every protected tool
+ * takes an `apiKey` argument, verified via `AuthService.verify` and mapped
+ * to `{ tenantId, scopes }` — tenant IDs are NEVER accepted from tool
+ * arguments. Each tool enforces its scope (`simulations:run`,
+ * `simulations:read`, `models:read`); `validate_access_model` is
+ * intentionally public (validates a caller-supplied snapshot, touches no
+ * tenant data). Errors surface as safe `{ code, message }` results —
+ * raw keys/digests never appear in outputs or logs.
+ *
+ * Timeouts/input limits: tool handlers race use-case work against
+ * `MCP_TOOL_TIMEOUT_MS` (default 30s); zod strict schemas bound argument
+ * shapes (operations ≤ 200, escalation limit ≤ 50, compare sections ≤ 100
+ * entries) so oversized payloads are rejected before any domain work.
+ *
+ * Local stdio trust assumption: stdio has no transport-level auth — the
+ * OS user launching `npm run mcp:serve` can speak to the pipe. The API key
+ * argument is therefore still required: it provides tenant identity +
+ * scope checks identical to REST. Do not run the stdio server as a
+ * multi-user shared process; one invocation per tenant operator.
  */
 import { Inject, Injectable } from '@nestjs/common';
 import { McpServer } from '@modelcontextprotocol/server';
@@ -32,6 +53,35 @@ import type { RiskFinding } from '../domain/findings';
 import { resolveAllSubjects } from '../domain/resolve-permissions';
 import { simulateWithFindings } from '../domain/risk-rules';
 import { SimulationsService } from '../simulations/simulations.service';
+
+/** Tool-handler timeout (ms); prevents a hung use case from wedging stdio. */
+export const MCP_TOOL_TIMEOUT_MS = Number(
+  process.env.MCP_TOOL_TIMEOUT_MS ?? 30000,
+);
+
+export class McpTimeoutError extends Error {
+  constructor() {
+    super('Tool execution timed out.');
+    this.name = 'McpTimeoutError';
+  }
+}
+
+/** Race use-case work against the tool timeout; AppError-safe on expiry. */
+export async function withToolTimeout<T>(work: Promise<T>): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new McpTimeoutError()),
+      MCP_TOOL_TIMEOUT_MS,
+    );
+    timer.unref?.();
+  });
+  try {
+    return await Promise.race([work, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 /** Strict input: a raw access-model snapshot object (same shape REST takes). */
 const validateInputSchema = z
@@ -83,7 +133,38 @@ export function toMcpError(err: unknown): {
   message: string;
 } {
   if (err instanceof AppError) return { code: err.code, message: err.message };
+  if (err instanceof McpTimeoutError)
+    return { code: 'internal_error', message: 'Tool execution timed out.' };
   throw err;
+}
+
+/** Strip key material from any value before it reaches logs/outputs. */
+export function redactSecrets(value: unknown): unknown {
+  if (typeof value === 'string')
+    return value.replace(/ppk_[A-Za-z0-9_-]+/g, '[REDACTED]');
+  if (Array.isArray(value)) return value.map(redactSecrets);
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) {
+      out[k] =
+        /api[_-]?key|digest|secret|token/i.test(k) && typeof v === 'string'
+          ? '[REDACTED]'
+          : redactSecrets(v);
+    }
+    return out;
+  }
+  return value;
+}
+
+/** Authenticate a tool call: apiKey → tenant context (never from args). */
+export async function authenticateTool(
+  auth: AuthService,
+  apiKey: string,
+  scope: 'simulations:run' | 'simulations:read' | 'models:read',
+): Promise<TenantContext> {
+  const ctx = await withToolTimeout(auth.verify(`Bearer ${apiKey}`));
+  auth.requireScope(ctx, scope);
+  return ctx;
 }
 
 /** Max findings returned per call (bounded output). */
@@ -403,9 +484,14 @@ export class McpService {
       },
       async ({ apiKey, ...body }) => {
         try {
-          const ctx = await this.auth.verify(`Bearer ${apiKey}`);
-          this.auth.requireScope(ctx, 'simulations:run');
-          const result = await this.simulations.createSimulation(ctx, body);
+          const ctx = await authenticateTool(
+            this.auth,
+            apiKey,
+            'simulations:run',
+          );
+          const result = await withToolTimeout(
+            this.simulations.createSimulation(ctx, body),
+          );
           return {
             content: [{ type: 'text', text: JSON.stringify(result) }],
             structuredContent: result,
@@ -429,12 +515,17 @@ export class McpService {
       },
       async ({ apiKey, simulationId, subjectId, permissionId }) => {
         try {
-          const ctx = await this.auth.verify(`Bearer ${apiKey}`);
-          this.auth.requireScope(ctx, 'simulations:read');
-          const report = await this.simulations.getReport(ctx, simulationId, {
-            page: 1,
-            pageSize: 100,
-          });
+          const ctx = await authenticateTool(
+            this.auth,
+            apiKey,
+            'simulations:read',
+          );
+          const report = await withToolTimeout(
+            this.simulations.getReport(ctx, simulationId, {
+              page: 1,
+              pageSize: 100,
+            }),
+          );
           const impacts = (
             Array.isArray(report.impacts) ? report.impacts : []
           ) as ImpactRow[];
@@ -476,8 +567,11 @@ export class McpService {
           isError: true as const,
         });
         try {
-          const ctx = await this.auth.verify(`Bearer ${apiKey}`);
-          this.auth.requireScope(ctx, 'simulations:read');
+          const ctx = await authenticateTool(
+            this.auth,
+            apiKey,
+            'simulations:read',
+          );
           if (!simulationId && !(snapshot && operations)) {
             return fail(
               new AppError(
@@ -488,10 +582,12 @@ export class McpService {
           }
           if (simulationId) {
             // Parity path: same persisted findings REST reports.
-            const report = await this.simulations.getReport(ctx, simulationId, {
-              page: 1,
-              pageSize: 100,
-            });
+            const report = await withToolTimeout(
+              this.simulations.getReport(ctx, simulationId, {
+                page: 1,
+                pageSize: 100,
+              }),
+            );
             const stored = (
               Array.isArray(report.findings) ? report.findings : []
             ) as RiskFinding[];
@@ -546,12 +642,19 @@ export class McpService {
           isError: true as const,
         });
         try {
-          const ctx = await this.auth.verify(`Bearer ${apiKey}`);
-          this.auth.requireScope(ctx, 'models:read');
-          const [from, to] = await Promise.all([
-            loadSnapshot(this.models, this.versions, ctx, modelId, fromVersion),
-            loadSnapshot(this.models, this.versions, ctx, modelId, toVersion),
-          ]);
+          const ctx = await authenticateTool(this.auth, apiKey, 'models:read');
+          const [from, to] = await withToolTimeout(
+            Promise.all([
+              loadSnapshot(
+                this.models,
+                this.versions,
+                ctx,
+                modelId,
+                fromVersion,
+              ),
+              loadSnapshot(this.models, this.versions, ctx, modelId, toVersion),
+            ]),
+          );
           const result: Record<string, unknown> = {
             modelId,
             fromVersion,
