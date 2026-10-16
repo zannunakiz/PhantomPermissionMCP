@@ -369,3 +369,164 @@ describe('simulate_permission_change (step 42)', () => {
     }
   });
 });
+
+/**
+ * Step 43 gate: added + removed access, unchanged access, missing
+ * records, and no invented causal evidence.
+ */
+describe('explain_access_change (step 43)', () => {
+  const RAW = `ppk_${'m'.repeat(40)}`;
+  const PEPPER = 'e2e-pepper-43';
+  let client: Client;
+  let app: INestApplication;
+  const SIM_ID = `sim_${'a'.repeat(24)}`;
+  const simRow = {
+    id: SIM_ID,
+    tenantId: 'tnt_a',
+    modelId: 'mdl_x',
+    version: 1,
+    versionRowId: 'ver_1',
+    contentHash: 'sha256:x',
+    status: 'COMPLETED',
+    summary: {},
+    impacts: [
+      { subjectId: 'alice', added: ['invoice:refund'], removed: [] },
+      { subjectId: 'bob', added: [], removed: ['invoice:read'] },
+    ],
+    findings: [],
+    operations: [
+      {
+        type: 'grant_permission',
+        roleId: 'viewer',
+        permissionId: 'invoice:refund',
+      },
+    ],
+    disclaimer: 'Findings are advisory only.',
+    createdAt: new Date(0),
+  };
+
+  const connect = async () => {
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(API_KEY_REPOSITORY)
+      .useValue({
+        findByDigest: (d: string) =>
+          Promise.resolve(
+            d === digestKey(RAW, PEPPER)
+              ? {
+                  id: 'key_a',
+                  tenantId: 'tnt_a',
+                  keyPrefix: RAW.slice(0, 12),
+                  keyDigest: d,
+                  scopes: ['simulations:read'],
+                  status: 'ACTIVE',
+                  expiresAt: null,
+                  revokedAt: null,
+                  lastUsedAt: null,
+                  createdAt: new Date(0),
+                  updatedAt: new Date(0),
+                }
+              : null,
+          ),
+        listByTenant: () => Promise.resolve([]),
+        create: () => Promise.reject(new Error('not used')),
+        updateStatus: () => Promise.resolve(null),
+        touchLastUsed: () => Promise.resolve(),
+      })
+      .overrideProvider(SIMULATION_REPOSITORY)
+      .useValue({
+        findById: (t: string, id: string) =>
+          Promise.resolve(id === SIM_ID && t === 'tnt_a' ? simRow : null),
+        listByTenant: () => Promise.resolve([]),
+        listByModel: () => Promise.resolve([]),
+        create: () => Promise.reject(new Error('not used')),
+      })
+      .overrideProvider('APP_CONFIG')
+      .useValue({
+        apiKeyPepper: PEPPER,
+        nodeEnv: 'test',
+        databaseUrl: 'postgresql://localhost:5432/test',
+      })
+      .compile();
+    app = moduleRef.createNestApplication({ logger: false });
+    await app.init();
+    const server = app.get(McpService).createServer();
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    client = new Client({ name: 'step43', version: '0.0.0' });
+    await Promise.all([server.connect(st), client.connect(ct)]);
+  };
+
+  beforeAll(async () => {
+    await connect();
+  });
+  afterAll(async () => {
+    await client.close();
+    await app.close();
+  });
+  const callExplain = (args: Record<string, unknown>) =>
+    client.callTool({
+      name: 'explain_access_change',
+      arguments: args,
+    }) as Promise<{
+      structuredContent: Record<string, unknown>;
+      isError?: boolean;
+    }>;
+
+  it('lists the tool', async () => {
+    expect((await client.listTools()).tools.map((t) => t.name)).toContain(
+      'explain_access_change',
+    );
+  });
+
+  it('explains added access with before/after facts', async () => {
+    const res = await callExplain({
+      apiKey: RAW,
+      simulationId: SIM_ID,
+      subjectId: 'alice',
+      permissionId: 'invoice:refund',
+    });
+    expect(res.isError).toBeFalsy();
+    expect(res.structuredContent.change).toBe('added');
+    expect(JSON.stringify(res.structuredContent.facts)).toContain(
+      'invoice:refund',
+    );
+    expect(res.structuredContent.inference).toBeDefined();
+  });
+
+  it('explains removed access', async () => {
+    const res = await callExplain({
+      apiKey: RAW,
+      simulationId: SIM_ID,
+      subjectId: 'bob',
+      permissionId: 'invoice:read',
+    });
+    expect(res.structuredContent.change).toBe('removed');
+  });
+
+  it('reports unchanged access when nothing matches', async () => {
+    const res = await callExplain({
+      apiKey: RAW,
+      simulationId: SIM_ID,
+      subjectId: 'carol',
+    });
+    expect(res.structuredContent.change).toBe('unchanged');
+  });
+
+  it('returns not_found for missing records, never invents evidence', async () => {
+    const missing = await callExplain({
+      apiKey: RAW,
+      simulationId: `sim_${'z'.repeat(24)}`,
+    });
+    expect(missing.isError).toBe(true);
+    expect(missing.structuredContent.code).toBe('not_found');
+    // Unmatched cause: bob/invoice:read has no recorded grant op -> low confidence + missing evidence.
+    const noCause = await callExplain({
+      apiKey: RAW,
+      simulationId: SIM_ID,
+      subjectId: 'bob',
+      permissionId: 'invoice:read',
+    });
+    const inf = noCause.structuredContent.inference as Record<string, unknown>;
+    expect(inf.confidence).toBe('low');
+    expect(inf.evidence).toBe('missing');
+  });
+});

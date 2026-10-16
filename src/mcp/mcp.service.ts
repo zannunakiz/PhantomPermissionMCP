@@ -18,6 +18,7 @@ import { AppError } from '../common/errors/app-error';
 import { AuthService } from '../auth/auth.service';
 import { validateSnapshot } from '../models/validate-snapshot';
 import { createSimulationBodySchema } from '../simulations/simulations.dto';
+import type { ChangeOperation } from '../domain/operations';
 import { SimulationsService } from '../simulations/simulations.service';
 
 /** Strict input: a raw access-model snapshot object (same shape REST takes). */
@@ -73,6 +74,117 @@ export function toMcpError(err: unknown): {
   throw err;
 }
 
+/** Strict input: saved simulation + optional subject/permission focus. */
+const explainInputSchema = z
+  .object({
+    apiKey: z.string().min(1).max(256),
+    simulationId: z.string().regex(/^sim_[A-Za-z0-9_-]{1,120}$/),
+    subjectId: z.string().min(1).max(128).optional(),
+    permissionId: z.string().min(1).max(128).optional(),
+  })
+  .strict();
+
+type ImpactRow = {
+  subjectId?: unknown;
+  added?: unknown;
+  removed?: unknown;
+};
+
+function strList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((v): v is string => typeof v === 'string').sort()
+    : [];
+}
+
+/**
+ * Step 43 — `explain_access_change` MCP tool.
+ * Thin handler: verifies the API key (`simulations:read`), loads the saved
+ * report via the same `SimulationsService.getReport` REST uses (same tenant
+ * rules + persistence), then explains the recorded diff.
+ * Output separates `facts` (recorded impacts, operations, provenance) from
+ * `inference` (best-effort responsible-operation guess, flagged
+ * `confidence: 'low'` with `evidence: 'missing'` when not derivable —
+ * never invents causal evidence).
+ */
+export function explainDiff(
+  impacts: ImpactRow[],
+  operations: ChangeOperation[],
+  focus?: { subjectId?: string; permissionId?: string },
+): {
+  change: 'added' | 'removed' | 'unchanged';
+  facts: Record<string, unknown>;
+  inference: Record<string, unknown>;
+} {
+  const rows = impacts
+    .map((r) => ({
+      subjectId: typeof r.subjectId === 'string' ? r.subjectId : '',
+      added: strList(r.added),
+      removed: strList(r.removed),
+    }))
+    .filter(
+      (r) =>
+        (!focus?.subjectId || r.subjectId === focus.subjectId) &&
+        (!focus?.permissionId ||
+          r.added.includes(focus.permissionId) ||
+          r.removed.includes(focus.permissionId)),
+    );
+  const added = rows.flatMap((r) =>
+    r.added
+      .filter((p) => !focus?.permissionId || p === focus.permissionId)
+      .map((p) => ({ subjectId: r.subjectId, permission: p })),
+  );
+  const removed = rows.flatMap((r) =>
+    r.removed
+      .filter((p) => !focus?.permissionId || p === focus.permissionId)
+      .map((p) => ({ subjectId: r.subjectId, permission: p })),
+  );
+  const facts = { added, removed, operations };
+  if (added.length === 0 && removed.length === 0) {
+    return {
+      change: 'unchanged',
+      facts,
+      inference: {
+        confidence: 'high',
+        explanation: 'No recorded permission difference for this focus.',
+      },
+    };
+  }
+  // Best-effort causal guess from recorded operations only.
+  const target = added[0] ?? removed[0];
+  const match = operations.find((op) => {
+    if (target && 'permissionId' in op && 'roleId' in op)
+      return op.permissionId === target.permission;
+    if (target && 'roleId' in op && 'subjectId' in op)
+      return (
+        (op as { subjectId: string }).subjectId === target.subjectId ||
+        (op as { roleId: string }).roleId !== undefined
+      );
+    return false;
+  });
+  if (!match) {
+    return {
+      change: added.length > 0 ? 'added' : 'removed',
+      facts,
+      inference: {
+        confidence: 'low',
+        evidence: 'missing',
+        explanation:
+          'Change is recorded, but no responsible operation is derivable from the saved operations.',
+      },
+    };
+  }
+  return {
+    change: added.length > 0 ? 'added' : 'removed',
+    facts,
+    inference: {
+      confidence: 'medium',
+      responsibleOperation: match,
+      explanation:
+        'Best-effort match against recorded operations; verify before acting.',
+    },
+  };
+}
+
 @Injectable()
 export class McpService {
   constructor(
@@ -112,6 +224,45 @@ export class McpService {
           const ctx = await this.auth.verify(`Bearer ${apiKey}`);
           this.auth.requireScope(ctx, 'simulations:run');
           const result = await this.simulations.createSimulation(ctx, body);
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result) }],
+            structuredContent: result,
+          };
+        } catch (err) {
+          const e = toMcpError(err);
+          return {
+            content: [{ type: 'text', text: JSON.stringify(e) }],
+            structuredContent: e,
+            isError: true,
+          };
+        }
+      },
+    );
+    server.registerTool(
+      'explain_access_change',
+      {
+        description:
+          'Explain a recorded permission diff from a saved simulation. Returns { change, facts, inference }.',
+        inputSchema: explainInputSchema,
+      },
+      async ({ apiKey, simulationId, subjectId, permissionId }) => {
+        try {
+          const ctx = await this.auth.verify(`Bearer ${apiKey}`);
+          this.auth.requireScope(ctx, 'simulations:read');
+          const report = await this.simulations.getReport(ctx, simulationId, {
+            page: 1,
+            pageSize: 100,
+          });
+          const impacts = (
+            Array.isArray(report.impacts) ? report.impacts : []
+          ) as ImpactRow[];
+          const operations = ((report.provenance as { operations?: unknown })
+            ?.operations ?? []) as ChangeOperation[];
+          const result = {
+            simulationId,
+            ...explainDiff(impacts, operations, { subjectId, permissionId }),
+            provenance: report.provenance,
+          };
           return {
             content: [{ type: 'text', text: JSON.stringify(result) }],
             structuredContent: result,
