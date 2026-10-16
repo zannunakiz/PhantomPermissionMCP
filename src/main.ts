@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { setupHttpHandling } from './common/http';
 import { JsonLoggerService } from './common/logging';
+import { setupSwagger } from './docs/swagger';
 
 import {
   AppConfig,
@@ -71,6 +72,8 @@ async function bootstrap() {
     | undefined;
   server?.setTimeout?.(30000);
   if (server) server.keepAliveTimeout = 5000;
+  // Step 38: local docs at GET /docs (+ OpenAPI JSON at /docs-json).
+  setupSwagger(app);
   await app.listen(config.port);
 }
 void bootstrap();
