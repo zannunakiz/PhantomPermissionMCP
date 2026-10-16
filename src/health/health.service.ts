@@ -1,6 +1,7 @@
 import { Injectable, Optional } from '@nestjs/common';
 import { MetricsService } from '../metrics/metrics.service';
 import { PrismaService } from '../persistence';
+import type { TracingService } from '../tracing/tracing.service';
 
 /**
  * Database readiness probe.
@@ -15,6 +16,7 @@ export class HealthService {
   constructor(
     private readonly db: PrismaService,
     @Optional() private readonly metrics?: MetricsService,
+    @Optional() private readonly tracing?: TracingService,
   ) {}
 
   live(): { status: string } {
@@ -23,7 +25,13 @@ export class HealthService {
 
   async ready(): Promise<{ status: string; database: string }> {
     try {
-      await this.db.$queryRaw`SELECT 1`;
+      // Step 51 — db-call tracing hook (no-op when tracing is off).
+      const probe = (): Promise<unknown> => this.db.$queryRaw`SELECT 1`;
+      await (this.tracing
+        ? this.tracing.span('db.query', { operation: 'readiness_probe' }, () =>
+            probe(),
+          )
+        : probe());
       this.metrics?.setDbUp(true);
       return { status: 'ok', database: 'up' };
     } catch {
