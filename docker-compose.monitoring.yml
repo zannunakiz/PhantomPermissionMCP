@@ -1,0 +1,36 @@
+services:
+  # Step 52 — optional local monitoring. Disabled by default; NOT part of
+  # the core app. Start with:
+  #   docker compose -f docker-compose.monitoring.yml --profile monitoring up -d
+  # The app keeps working with this stack stopped (core has no dependency
+  # on Prometheus/Grafana). Requires the app running on the host first
+  # (PORT=3000 default; override APP_METRICS_URL if different).
+  prometheus:
+    image: prom/prometheus:v3.3.1
+    container_name: phantom-prometheus
+    profiles: ['monitoring']
+    command: ['--config.file=/etc/prometheus/prometheus.yml']
+    ports: ['9090:9090'] # Prometheus UI: http://localhost:9090
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus # persisted TSDB; drop volume to reset
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.5.2
+    container_name: phantom-grafana
+    profiles: ['monitoring']
+    ports: ['3001:3000'] # Grafana UI: http://localhost:3001 (admin/admin)
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana # persisted dashboards/users
+    depends_on: [prometheus]
+    restart: unless-stopped
+
+volumes:
+  prometheus-data:
+  grafana-data:

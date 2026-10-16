@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { AppError } from '../common/errors/app-error';
 import { paginate, toISOString } from '../common/http';
 import type { PagedResult, PaginationQuery } from '../common/http';
@@ -20,6 +20,7 @@ import type { ModelVersionRepository } from '../repositories/model-version.repos
 import type { SimulationRepository } from '../repositories/simulation.repository';
 import { assertVersionChain } from '../tenancy/tenant-scope';
 import type { TenantContext } from '../tenancy/tenant-context';
+import type { TracingService } from '../tracing/tracing.service';
 import type { CreateSimulationBody } from './simulations.dto';
 
 const ENDPOINT = 'POST /api/v1/simulations';
@@ -54,6 +55,7 @@ export class SimulationsService {
     @Inject(MVR) private readonly versions: ModelVersionRepository,
     @Inject(SR) private readonly simulations: SimulationRepository,
     @Inject(IR) private readonly idempotency: IdempotencyRepository,
+    @Optional() private readonly tracing?: TracingService,
   ) {}
 
   async createSimulation(
@@ -103,10 +105,15 @@ export class SimulationsService {
     const snapshot = version.snapshot as AccessModelSnapshot;
     let result: SimulationWithFindings;
     try {
-      result = simulateWithFindings(
-        snapshot,
-        body.operations as ChangeOperation[],
-      );
+      const run = (): SimulationWithFindings =>
+        simulateWithFindings(snapshot, body.operations as ChangeOperation[]);
+      result = this.tracing
+        ? await this.tracing.span(
+            'simulation.run',
+            { operationCount: (body.operations as unknown[]).length },
+            () => run(),
+          )
+        : run();
     } catch (err) {
       if (err instanceof DomainError) throw toDomainError(err);
       throw err;
