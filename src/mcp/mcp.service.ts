@@ -19,6 +19,8 @@ import { AuthService } from '../auth/auth.service';
 import { validateSnapshot } from '../models/validate-snapshot';
 import { createSimulationBodySchema } from '../simulations/simulations.dto';
 import type { ChangeOperation } from '../domain/operations';
+import type { RiskFinding } from '../domain/findings';
+import { simulateWithFindings } from '../domain/risk-rules';
 import { SimulationsService } from '../simulations/simulations.service';
 
 /** Strict input: a raw access-model snapshot object (same shape REST takes). */
@@ -72,6 +74,63 @@ export function toMcpError(err: unknown): {
 } {
   if (err instanceof AppError) return { code: err.code, message: err.message };
   throw err;
+}
+
+/** Max findings returned per call (bounded output). */
+export const MAX_ESCALATION_FINDINGS = 50;
+
+/** Strict input: saved simulation OR inline snapshot+operations. */
+const escalationBaseSchema = z
+  .object({
+    apiKey: z.string().min(1).max(256),
+    simulationId: z
+      .string()
+      .regex(/^sim_[A-Za-z0-9_-]{1,120}$/)
+      .optional(),
+    snapshot: z.record(z.string(), z.unknown()).optional(),
+    operations: z
+      .array(z.record(z.string(), z.unknown()))
+      .min(1)
+      .max(200)
+      .optional(),
+    limit: z.number().int().min(1).max(MAX_ESCALATION_FINDINGS).default(20),
+  })
+  .strict();
+
+/** Refined variant (either simulationId or snapshot+operations required). */
+export const escalationInputSchema = escalationBaseSchema.refine(
+  (v) => v.simulationId ?? (v.snapshot && v.operations),
+  { message: 'Provide simulationId or snapshot+operations.' },
+);
+
+export type EscalationHit = {
+  ruleId: string;
+  severity: string;
+  subjects: unknown;
+  evidence: unknown;
+};
+
+/**
+ * Step 44 — `find_privilege_escalation` MCP tool.
+ * Thin handler: `simulations:read` scope; saved-simulation path reuses the
+ * persisted REST findings (parity); inline path re-runs the same
+ * deterministic `simulateWithFindings` domain rules REST uses. Output is
+ * bounded (`limit`, max 50) and only flags configured risky patterns —
+ * plain grants are not labelled vulnerabilities.
+ */
+export function toEscalationHits(
+  findings: RiskFinding[],
+  limit: number,
+): EscalationHit[] {
+  return findings
+    .filter((f) => f.ruleId !== 'UNEXPECTED_SUBJECT_IMPACT')
+    .slice(0, Math.min(limit, MAX_ESCALATION_FINDINGS))
+    .map((f) => ({
+      ruleId: f.ruleId,
+      severity: f.severity,
+      subjects: f.subjects,
+      evidence: f.evidence,
+    }));
 }
 
 /** Strict input: saved simulation + optional subject/permission focus. */
@@ -274,6 +333,70 @@ export class McpService {
             structuredContent: e,
             isError: true,
           };
+        }
+      },
+    );
+    server.registerTool(
+      'find_privilege_escalation',
+      {
+        description:
+          'Find risky privilege-escalation patterns from a saved simulation or inline snapshot+operations. Returns { findings }.',
+        inputSchema: escalationBaseSchema,
+      },
+      async ({ apiKey, simulationId, snapshot, operations, limit }) => {
+        const text = (result: unknown) => ({
+          content: [{ type: 'text' as const, text: JSON.stringify(result) }],
+          structuredContent: result as Record<string, unknown>,
+        });
+        const fail = (err: unknown) => ({
+          ...text(toMcpError(err)),
+          isError: true as const,
+        });
+        try {
+          const ctx = await this.auth.verify(`Bearer ${apiKey}`);
+          this.auth.requireScope(ctx, 'simulations:read');
+          if (!simulationId && !(snapshot && operations)) {
+            return fail(
+              new AppError(
+                'validation_failed',
+                'Provide simulationId or snapshot+operations.',
+              ),
+            );
+          }
+          if (simulationId) {
+            // Parity path: same persisted findings REST reports.
+            const report = await this.simulations.getReport(ctx, simulationId, {
+              page: 1,
+              pageSize: 100,
+            });
+            const stored = (
+              Array.isArray(report.findings) ? report.findings : []
+            ) as RiskFinding[];
+            return text({
+              simulationId,
+              findings: toEscalationHits(stored, limit ?? 20),
+            });
+          }
+          // Inline path: same deterministic domain rules REST simulates with.
+          let snap;
+          try {
+            snap = validateSnapshot(snapshot);
+          } catch (err) {
+            return fail(err);
+          }
+          try {
+            const sim = simulateWithFindings(
+              snap,
+              (operations ?? []) as ChangeOperation[],
+            );
+            return text({
+              findings: toEscalationHits([...sim.findings], limit ?? 20),
+            });
+          } catch (err) {
+            return fail(err);
+          }
+        } catch (err) {
+          return fail(err);
         }
       },
     );

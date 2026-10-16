@@ -530,3 +530,219 @@ describe('explain_access_change (step 43)', () => {
     expect(inf.evidence).toBe('missing');
   });
 });
+
+/**
+ * Step 44 gate: positive + negative fixtures, output limits, access
+ * scopes, parity with REST risk findings.
+ */
+describe('find_privilege_escalation (step 44)', () => {
+  const RAW = `ppk_${'n'.repeat(40)}`;
+  const PEPPER = 'e2e-pepper-44';
+  let client: Client;
+  let app: INestApplication;
+  const SIM_ID = `sim_${'b'.repeat(24)}`;
+  const SNAP = {
+    roles: [{ id: 'viewer', name: 'viewer' }],
+    permissions: [
+      { id: 'invoice:read', value: 'invoice:read' },
+      { id: 'invoice:refund', value: 'invoice:refund' },
+    ],
+    bindings: [{ roleId: 'viewer', permissionId: 'invoice:read' }],
+    inheritance: [],
+    assignments: [{ subjectId: 'alice', roleId: 'viewer' }],
+    subjects: [{ id: 'alice' }],
+  };
+  const storedFindings = [
+    {
+      ruleId: 'SENSITIVE_PERMISSION',
+      severity: 'high',
+      subjects: ['alice'],
+      evidence: { permission: 'invoice:refund' },
+      explanation: 'x',
+    },
+    {
+      ruleId: 'UNEXPECTED_SUBJECT_IMPACT',
+      severity: 'low',
+      subjects: ['alice'],
+      evidence: {},
+      explanation: 'noise',
+    },
+  ];
+  const simRow = {
+    id: SIM_ID,
+    tenantId: 'tnt_a',
+    modelId: 'mdl_x',
+    version: 1,
+    versionRowId: 'ver_1',
+    contentHash: 'sha256:x',
+    status: 'COMPLETED',
+    summary: {},
+    impacts: [],
+    findings: storedFindings,
+    operations: [],
+    disclaimer: 'advisory',
+    createdAt: new Date(0),
+  };
+
+  const connect = async (scopes: string[]) => {
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(API_KEY_REPOSITORY)
+      .useValue({
+        findByDigest: (d: string) =>
+          Promise.resolve(
+            d === digestKey(RAW, PEPPER)
+              ? {
+                  id: 'key_a',
+                  tenantId: 'tnt_a',
+                  keyPrefix: RAW.slice(0, 12),
+                  keyDigest: d,
+                  scopes,
+                  status: 'ACTIVE',
+                  expiresAt: null,
+                  revokedAt: null,
+                  lastUsedAt: null,
+                  createdAt: new Date(0),
+                  updatedAt: new Date(0),
+                }
+              : null,
+          ),
+        listByTenant: () => Promise.resolve([]),
+        create: () => Promise.reject(new Error('not used')),
+        updateStatus: () => Promise.resolve(null),
+        touchLastUsed: () => Promise.resolve(),
+      })
+      .overrideProvider(SIMULATION_REPOSITORY)
+      .useValue({
+        findById: (t: string, id: string) =>
+          Promise.resolve(id === SIM_ID && t === 'tnt_a' ? simRow : null),
+        listByTenant: () => Promise.resolve([]),
+        listByModel: () => Promise.resolve([]),
+        create: () => Promise.reject(new Error('not used')),
+      })
+      .overrideProvider('APP_CONFIG')
+      .useValue({
+        apiKeyPepper: PEPPER,
+        nodeEnv: 'test',
+        databaseUrl: 'postgresql://localhost:5432/test',
+      })
+      .compile();
+    app = moduleRef.createNestApplication({ logger: false });
+    await app.init();
+    const server = app.get(McpService).createServer();
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    client = new Client({ name: 'step44', version: '0.0.0' });
+    await Promise.all([server.connect(st), client.connect(ct)]);
+  };
+  const close = async () => {
+    await client.close();
+    await app.close();
+  };
+  const callFind = (args: Record<string, unknown>) =>
+    client.callTool({
+      name: 'find_privilege_escalation',
+      arguments: args,
+    }) as Promise<{
+      structuredContent: Record<string, unknown>;
+      isError?: boolean;
+    }>;
+  const GRANT_REFUND = [
+    {
+      type: 'grant_permission',
+      roleId: 'viewer',
+      permissionId: 'invoice:refund',
+    },
+  ];
+
+  it('lists the tool', async () => {
+    await connect(['simulations:read']);
+    try {
+      expect((await client.listTools()).tools.map((t) => t.name)).toContain(
+        'find_privilege_escalation',
+      );
+    } finally {
+      await close();
+    }
+  });
+
+  it('flags sensitive grants (positive) but not plain reads (negative)', async () => {
+    await connect(['simulations:read']);
+    try {
+      const pos = await callFind({
+        apiKey: RAW,
+        snapshot: SNAP,
+        operations: GRANT_REFUND,
+      });
+      expect(pos.isError).toBeFalsy();
+      const hits = pos.structuredContent.findings as Record<string, unknown>[];
+      expect(hits.length).toBeGreaterThan(0);
+      expect(hits[0]).toHaveProperty('ruleId');
+      expect(hits[0]).toHaveProperty('severity');
+      expect(hits[0]).toHaveProperty('evidence');
+      // Negative: granting a non-sensitive permission flags nothing sensitive.
+      const neg = await callFind({
+        apiKey: RAW,
+        snapshot: SNAP,
+        operations: [
+          {
+            type: 'grant_permission',
+            roleId: 'viewer',
+            permissionId: 'invoice:read',
+          },
+        ],
+      });
+      const negHits = neg.structuredContent.findings as Record<
+        string,
+        unknown
+      >[];
+      expect(
+        negHits.filter((h) => h.ruleId === 'SENSITIVE_PERMISSION'),
+      ).toEqual([]);
+    } finally {
+      await close();
+    }
+  });
+
+  it('bounds output with limit', async () => {
+    await connect(['simulations:read']);
+    try {
+      const res = await callFind({
+        apiKey: RAW,
+        snapshot: SNAP,
+        operations: GRANT_REFUND,
+        limit: 1,
+      });
+      expect(
+        (res.structuredContent.findings as unknown[]).length,
+      ).toBeLessThanOrEqual(1);
+    } finally {
+      await close();
+    }
+  });
+
+  it('matches REST persisted findings (parity) and enforces scope', async () => {
+    await connect(['simulations:read']);
+    try {
+      const res = await callFind({ apiKey: RAW, simulationId: SIM_ID });
+      expect(res.isError).toBeFalsy();
+      // Parity: stored SENSITIVE_PERMISSION kept, noise rule filtered out.
+      expect(res.structuredContent.findings).toEqual([
+        {
+          ruleId: 'SENSITIVE_PERMISSION',
+          severity: 'high',
+          subjects: ['alice'],
+          evidence: { permission: 'invoice:refund' },
+        },
+      ]);
+    } finally {
+      await close();
+    }
+    await connect(['models:read']);
+    try {
+      const denied = await callFind({ apiKey: RAW, simulationId: SIM_ID });
+      expect(denied.isError).toBe(true);
+      expect(denied.structuredContent.code).toBe('forbidden_scope');
+    } finally {
+      await close();
+    }
+  });
+});
