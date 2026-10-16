@@ -746,3 +746,211 @@ describe('find_privilege_escalation (step 44)', () => {
     }
   });
 });
+
+/**
+ * Step 45 gate: model differences, effective access changes, identical
+ * models, invalid versions, cross-tenant denial.
+ */
+describe('compare_access_models (step 45)', () => {
+  const RAW = `ppk_${'o'.repeat(40)}`;
+  const PEPPER = 'e2e-pepper-45';
+  let client: Client;
+  let app: INestApplication;
+  const V1 = {
+    roles: [{ id: 'viewer', name: 'viewer' }],
+    permissions: [{ id: 'invoice:read', value: 'invoice:read' }],
+    bindings: [{ roleId: 'viewer', permissionId: 'invoice:read' }],
+    inheritance: [],
+    assignments: [{ subjectId: 'alice', roleId: 'viewer' }],
+    subjects: [{ id: 'alice' }],
+  };
+  const V2 = {
+    ...V1,
+    permissions: [
+      ...V1.permissions,
+      { id: 'invoice:refund', value: 'invoice:refund' },
+    ],
+    bindings: [
+      ...V1.bindings,
+      { roleId: 'viewer', permissionId: 'invoice:refund' },
+    ],
+  };
+  const rows: Record<string, Record<string, unknown>> = {
+    'tnt_a|mdl_cmp|1': {
+      id: 'ver_1',
+      modelId: 'mdl_cmp',
+      tenantId: 'tnt_a',
+      version: 1,
+      contentHash: 'h1',
+      snapshot: V1,
+      operationCount: 0,
+      createdAt: new Date(0),
+    },
+    'tnt_a|mdl_cmp|2': {
+      id: 'ver_2',
+      modelId: 'mdl_cmp',
+      tenantId: 'tnt_a',
+      version: 2,
+      contentHash: 'h2',
+      snapshot: V2,
+      operationCount: 0,
+      createdAt: new Date(0),
+    },
+  };
+
+  const connect = async (tenant: string, scopes: string[]) => {
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(API_KEY_REPOSITORY)
+      .useValue({
+        findByDigest: (d: string) =>
+          Promise.resolve(
+            d === digestKey(RAW, PEPPER)
+              ? {
+                  id: 'key_x',
+                  tenantId: tenant,
+                  keyPrefix: RAW.slice(0, 12),
+                  keyDigest: d,
+                  scopes,
+                  status: 'ACTIVE',
+                  expiresAt: null,
+                  revokedAt: null,
+                  lastUsedAt: null,
+                  createdAt: new Date(0),
+                  updatedAt: new Date(0),
+                }
+              : null,
+          ),
+        listByTenant: () => Promise.resolve([]),
+        create: () => Promise.reject(new Error('not used')),
+        updateStatus: () => Promise.resolve(null),
+        touchLastUsed: () => Promise.resolve(),
+      })
+      .overrideProvider(ACCESS_MODEL_REPOSITORY)
+      .useValue({
+        findById: (t: string, id: string) =>
+          Promise.resolve(
+            id === 'mdl_cmp' && t === 'tnt_a'
+              ? {
+                  id,
+                  tenantId: t,
+                  name: 'm',
+                  currentVersion: 2,
+                  createdAt: new Date(0),
+                  updatedAt: new Date(0),
+                }
+              : null,
+          ),
+        listByTenant: () => Promise.resolve([]),
+        create: () => Promise.reject(new Error('not used')),
+      })
+      .overrideProvider(MODEL_VERSION_REPOSITORY)
+      .useValue({
+        findByModelVersion: (t: string, m: string, v: number) =>
+          Promise.resolve(rows[`${t}|${m}|${v}`] ?? null),
+        listByModel: () => Promise.resolve([]),
+        create: () => Promise.reject(new Error('not used')),
+      })
+      .overrideProvider('APP_CONFIG')
+      .useValue({
+        apiKeyPepper: PEPPER,
+        nodeEnv: 'test',
+        databaseUrl: 'postgresql://localhost:5432/test',
+      })
+      .compile();
+    app = moduleRef.createNestApplication({ logger: false });
+    await app.init();
+    const server = app.get(McpService).createServer();
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    client = new Client({ name: 'step45', version: '0.0.0' });
+    await Promise.all([server.connect(st), client.connect(ct)]);
+  };
+  const close = async () => {
+    await client.close();
+    await app.close();
+  };
+  const callCmp = (args: Record<string, unknown>) =>
+    client.callTool({
+      name: 'compare_access_models',
+      arguments: args,
+    }) as Promise<{
+      structuredContent: Record<string, unknown>;
+      isError?: boolean;
+    }>;
+  const BASE = {
+    apiKey: RAW,
+    modelId: 'mdl_cmp',
+    fromVersion: 1,
+    toVersion: 2,
+  };
+
+  it('lists the tool', async () => {
+    await connect('tnt_a', ['models:read']);
+    try {
+      expect((await client.listTools()).tools.map((t) => t.name)).toContain(
+        'compare_access_models',
+      );
+    } finally {
+      await close();
+    }
+  });
+
+  it('reports model differences + effective access changes', async () => {
+    await connect('tnt_a', ['models:read']);
+    try {
+      const res = await callCmp({ ...BASE, includeEffectiveAccess: true });
+      expect(res.isError).toBeFalsy();
+      const d = res.structuredContent.differences as Record<string, string[]>;
+      expect(d.addedPermissions).toContain('invoice:refund');
+      expect(d.addedBindings).toContain('viewer|invoice:refund');
+      const eff = res.structuredContent.effectiveAccess as {
+        subjectId: string;
+        added: string[];
+      }[];
+      expect(eff.find((e) => e.subjectId === 'alice')?.added).toContain(
+        'invoice:refund',
+      );
+    } finally {
+      await close();
+    }
+  });
+
+  it('returns empty diffs for identical models', async () => {
+    await connect('tnt_a', ['models:read']);
+    try {
+      const res = await callCmp({
+        ...BASE,
+        fromVersion: 1,
+        toVersion: 1,
+        includeEffectiveAccess: true,
+      });
+      expect(res.isError).toBeFalsy();
+      expect(
+        Object.values(
+          res.structuredContent.differences as Record<string, string[]>,
+        ).every((v) => v.length === 0),
+      ).toBe(true);
+      expect(res.structuredContent.effectiveAccess).toEqual([]);
+    } finally {
+      await close();
+    }
+  });
+
+  it('rejects invalid versions and denies cross-tenant access', async () => {
+    await connect('tnt_a', ['models:read']);
+    try {
+      const bad = await callCmp({ ...BASE, toVersion: 99 });
+      expect(bad.isError).toBe(true);
+      expect(bad.structuredContent.code).toBe('not_found');
+    } finally {
+      await close();
+    }
+    await connect('tnt_b', ['models:read']);
+    try {
+      const denied = await callCmp(BASE);
+      expect(denied.isError).toBe(true);
+      expect(denied.structuredContent.code).toBe('not_found');
+    } finally {
+      await close();
+    }
+  });
+});

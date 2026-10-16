@@ -10,7 +10,7 @@
  * inside transport handlers — tools registered in Steps 41+ call the same
  * application services as REST. Run: `npm run mcp:serve` (stdio).
  */
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { McpServer } from '@modelcontextprotocol/server';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import { z } from 'zod';
@@ -18,8 +18,18 @@ import { AppError } from '../common/errors/app-error';
 import { AuthService } from '../auth/auth.service';
 import { validateSnapshot } from '../models/validate-snapshot';
 import { createSimulationBodySchema } from '../simulations/simulations.dto';
+import { assertModelInTenant } from '../tenancy/tenant-scope';
+import type { TenantContext } from '../tenancy/tenant-context';
+import {
+  ACCESS_MODEL_REPOSITORY as AMR,
+  MODEL_VERSION_REPOSITORY as MVR,
+} from '../repositories/tokens';
+import type { AccessModelRepository } from '../repositories/access-model.repository';
+import type { ModelVersionRepository } from '../repositories/model-version.repository';
+import type { AccessModelSnapshot } from '../domain/access-model';
 import type { ChangeOperation } from '../domain/operations';
 import type { RiskFinding } from '../domain/findings';
+import { resolveAllSubjects } from '../domain/resolve-permissions';
 import { simulateWithFindings } from '../domain/risk-rules';
 import { SimulationsService } from '../simulations/simulations.service';
 
@@ -244,10 +254,123 @@ export function explainDiff(
   };
 }
 
+/** Max diff entries per section (bounded output). */
+export const MAX_COMPARE_ENTRIES = 100;
+
+/** Strict input: two authorised model versions + options. */
+const compareInputSchema = z
+  .object({
+    apiKey: z.string().min(1).max(256),
+    modelId: z.string().regex(/^mdl_[A-Za-z0-9_-]{1,120}$/),
+    fromVersion: z.number().int().min(1),
+    toVersion: z.number().int().min(1),
+    includeEffectiveAccess: z.boolean().default(false),
+  })
+  .strict();
+
+function idSet(ids: readonly { id: string }[]): Set<string> {
+  return new Set(ids.map((e) => e.id));
+}
+
+function pairSet(rows: readonly { [key: string]: string }[]): Set<string> {
+  return new Set(rows.map((r) => `${r.a}|${r.b}`));
+}
+
+function bindPairs(
+  rows: readonly { roleId: string; permissionId: string }[],
+): { a: string; b: string }[] {
+  return rows.map((r) => ({ a: r.roleId, b: r.permissionId }));
+}
+
+function assignPairs(
+  rows: readonly { subjectId: string; roleId: string }[],
+): { a: string; b: string }[] {
+  return rows.map((r) => ({ a: r.subjectId, b: r.roleId }));
+}
+
+/**
+ * Step 45 — `compare_access_models` MCP tool.
+ * Thin handler: `models:read` scope; loads both snapshots through the same
+ * tenant-scoped version repository REST reads (cross-tenant → not_found),
+ * validates both with the shared validator, diffs roles/permissions/
+ * bindings/assignments, and optionally resolves subject-level effective
+ * access via the existing `resolveAllSubjects` domain service. Bounded
+ * output (100 entries/section); identical snapshots → empty diffs.
+ */
+export function diffSnapshots(
+  a: AccessModelSnapshot,
+  b: AccessModelSnapshot,
+): Record<string, string[]> {
+  const diff = (x: Set<string>, y: Set<string>): string[] =>
+    [...y]
+      .filter((v) => !x.has(v))
+      .sort()
+      .slice(0, MAX_COMPARE_ENTRIES);
+  const aRoles = idSet(a.roles);
+  const bRoles = idSet(b.roles);
+  const aPerms = idSet(a.permissions);
+  const bPerms = idSet(b.permissions);
+  const aBind = pairSet(bindPairs(a.bindings));
+  const bBind = pairSet(bindPairs(b.bindings));
+  const aAssign = pairSet(assignPairs(a.assignments));
+  const bAssign = pairSet(assignPairs(b.assignments));
+  return {
+    addedRoles: diff(aRoles, bRoles),
+    removedRoles: diff(bRoles, aRoles),
+    addedPermissions: diff(aPerms, bPerms),
+    removedPermissions: diff(bPerms, aPerms),
+    addedBindings: diff(aBind, bBind),
+    removedBindings: diff(bBind, aBind),
+    addedAssignments: diff(aAssign, bAssign),
+    removedAssignments: diff(bAssign, aAssign),
+  };
+}
+
+export function effectiveAccessDiff(
+  a: AccessModelSnapshot,
+  b: AccessModelSnapshot,
+): { subjectId: string; added: string[]; removed: string[] }[] {
+  const ra = resolveAllSubjects(a);
+  const rb = resolveAllSubjects(b);
+  const ids = new Set([...ra.keys(), ...rb.keys()]);
+  const out: { subjectId: string; added: string[]; removed: string[] }[] = [];
+  for (const id of [...ids].sort()) {
+    const before = new Set(ra.get(id) ?? []);
+    const after = new Set(rb.get(id) ?? []);
+    const added = [...after].filter((p) => !before.has(p)).sort();
+    const removed = [...before].filter((p) => !after.has(p)).sort();
+    if (added.length > 0 || removed.length > 0)
+      out.push({ subjectId: id, added, removed });
+    if (out.length >= MAX_COMPARE_ENTRIES) break;
+  }
+  return out;
+}
+
+async function loadSnapshot(
+  models: AccessModelRepository,
+  versions: ModelVersionRepository,
+  ctx: TenantContext,
+  modelId: string,
+  version: number,
+): Promise<AccessModelSnapshot> {
+  const model = await models.findById(ctx.tenantId, modelId);
+  assertModelInTenant(model, ctx.tenantId);
+  const ver = await versions.findByModelVersion(
+    ctx.tenantId,
+    model.id,
+    version,
+  );
+  if (!ver || ver.modelId !== model.id)
+    throw new AppError('not_found', 'Model version not found.');
+  return validateSnapshot(ver.snapshot);
+}
+
 @Injectable()
 export class McpService {
   constructor(
     private readonly auth: AuthService,
+    @Inject(AMR) private readonly models: AccessModelRepository,
+    @Inject(MVR) private readonly versions: ModelVersionRepository,
     private readonly simulations: SimulationsService,
   ) {}
 
@@ -395,6 +518,49 @@ export class McpService {
           } catch (err) {
             return fail(err);
           }
+        } catch (err) {
+          return fail(err);
+        }
+      },
+    );
+    server.registerTool(
+      'compare_access_models',
+      {
+        description:
+          'Compare two authorised model versions. Returns { differences, effectiveAccess? }.',
+        inputSchema: compareInputSchema,
+      },
+      async ({
+        apiKey,
+        modelId,
+        fromVersion,
+        toVersion,
+        includeEffectiveAccess,
+      }) => {
+        const text = (result: unknown) => ({
+          content: [{ type: 'text' as const, text: JSON.stringify(result) }],
+          structuredContent: result as Record<string, unknown>,
+        });
+        const fail = (err: unknown) => ({
+          ...text(toMcpError(err)),
+          isError: true as const,
+        });
+        try {
+          const ctx = await this.auth.verify(`Bearer ${apiKey}`);
+          this.auth.requireScope(ctx, 'models:read');
+          const [from, to] = await Promise.all([
+            loadSnapshot(this.models, this.versions, ctx, modelId, fromVersion),
+            loadSnapshot(this.models, this.versions, ctx, modelId, toVersion),
+          ]);
+          const result: Record<string, unknown> = {
+            modelId,
+            fromVersion,
+            toVersion,
+            differences: diffSnapshots(from, to),
+          };
+          if (includeEffectiveAccess)
+            result.effectiveAccess = effectiveAccessDiff(from, to);
+          return text(result);
         } catch (err) {
           return fail(err);
         }
