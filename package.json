@@ -16,14 +16,15 @@
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
-    "start:prod": "node dist/main",
+    "start:prod": "node dist/src/main",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "lint:check": "eslint \"{src,apps,libs,test}/**/*.ts\"",
     "typecheck": "tsc -p tsconfig.build.json --noEmit",
     "validate": "npm run lint:check && npm run format:check && npm run typecheck && npm run test && npm run test:e2e && npm run build",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:cov": "jest --coverage",
+    "test:cov": "jest --coverage --coverageReporters=text --coverageReporters=json-summary && node scripts/check-domain-coverage.js",
+    "test:cov:unit": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "test:integration": "jest --config ./test/jest-integration.json --runInBand",
@@ -100,8 +101,36 @@
       "^.+\\.(t|j)s$": "ts-jest"
     },
     "collectCoverageFrom": [
-      "**/*.(t|j)s"
+      "domain/**/*.ts",
+      "auth/**/*.ts",
+      "common/**/*.ts",
+      "config/**/*.ts",
+      "health/**/*.ts",
+      "mcp/**/*.ts",
+      "metrics/**/*.ts",
+      "models/**/*.ts",
+      "simulations/**/*.ts",
+      "tenancy/**/*.ts",
+      "tracing/**/*.ts",
+      "repositories/**/*.ts",
+      "persistence/**/*.ts",
+      "!**/*.spec.ts",
+      "!**/*.int-spec.ts",
+      "!**/*.e2e-spec.ts",
+      "!**/*.dto.ts",
+      "!**/*.module.ts",
+      "!**/index.ts",
+      "!main.ts",
+      "!docs/**"
     ],
+    "coverageThreshold": {
+      "global": {
+        "statements": 70,
+        "branches": 55,
+        "functions": 55,
+        "lines": 68
+      }
+    },
     "coverageDirectory": "../coverage",
     "testEnvironment": "node"
   }

@@ -2,8 +2,12 @@
  * Adapter integration tests: ports against the real PostgreSQL.
  *
  * Run explicitly — never part of the default hermetic unit suite:
- *   DATABASE_URL=postgresql://phantom:phantom@localhost:5434/phantom_permission_dev \
+ *   DATABASE_URL=postgresql://phantom:phantom@localhost:5432/phantom_permission_test \
  *     npm run test:integration
+ *
+ * The Jest global setup (`scripts/integration-test-db.js`) refuses any
+ * non-local / non-test / production configuration, applies migrations, then
+ * truncates all tables — so runs always start clean and are repeatable.
  *
  * Every case uses `repo-int-*` ids and deletes its rows afterwards, so
  * the suite is safe to re-run against a dev database. Requires the

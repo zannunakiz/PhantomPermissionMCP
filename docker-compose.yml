@@ -1,0 +1,105 @@
+# Step 58 — local Docker Compose deployment.
+#
+# Quick start (no paid services, no extra tooling):
+#   docker compose up -d --build          # build image + start PostgreSQL + app
+#   docker compose run --rm migrate       # apply migrations (idempotent)
+#   docker compose run --rm seed          # seed fictional demo data (idempotent)
+#   curl http://localhost:3000/health/ready
+#
+# Reset everything (destructive — drops the database volume):
+#   docker compose down -v
+#
+# Optional monitoring (Prometheus + Grafana, disabled by default):
+#   docker compose -f docker-compose.monitoring.yml --profile monitoring up -d
+#
+# Secrets: set API_KEY_PEPPER in a local `.env` (see .env.example) for any
+# shared environment. The default below is a clearly-labeled local-only
+# value; the app refuses placeholder peppers in production mode.
+
+name: phantom-permission
+
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: phantom-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-phantom}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-phantom}
+      POSTGRES_DB: ${POSTGRES_DB:-phantom_permission}
+    ports:
+      - '${POSTGRES_PORT:-5433}:5432' # host 5433 avoids clashing with a local Postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data # persistent; `down -v` resets
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      target: runtime # production image from Step 57
+    image: phantom-permission-mcp:local
+    container_name: phantom-app
+    depends_on:
+      db:
+        condition: service_healthy # start only after Postgres accepts connections
+    environment:
+      NODE_ENV: development # local stack; no production secrets required
+      PORT: 3000
+      # In-network URL — always points at the `db` service, never localhost.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-phantom}:${POSTGRES_PASSWORD:-phantom}@db:5432/${POSTGRES_DB:-phantom_permission}
+      API_KEY_PEPPER: ${API_KEY_PEPPER:-local-compose-pepper-do-not-use-in-production}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      REQUEST_BODY_LIMIT: ${REQUEST_BODY_LIMIT:-1mb}
+      RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-60000}
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-100}
+    ports:
+      - '${PORT:-3000}:3000'
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'wget -qO- "http://127.0.0.1:$${PORT:-3000}/health/live" >/dev/null || exit 1',
+        ]
+      interval: 15s
+      timeout: 3s
+      start_period: 15s
+      retries: 3
+    restart: unless-stopped
+
+  # One-shot tasks — never start with `up`; run explicitly:
+  #   docker compose run --rm migrate
+  #   docker compose run --rm seed
+  # Both use the build stage (dev dependencies: Prisma CLI, ts-node).
+  migrate:
+    build:
+      context: .
+      target: build
+    image: phantom-permission-mcp:build
+    profiles: ['tools'] # excluded from `docker compose up`
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-phantom}:${POSTGRES_PASSWORD:-phantom}@db:5432/${POSTGRES_DB:-phantom_permission}
+    command: ['npx', 'prisma', 'migrate', 'deploy']
+
+  seed:
+    build:
+      context: .
+      target: build
+    image: phantom-permission-mcp:build
+    profiles: ['tools']
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-phantom}:${POSTGRES_PASSWORD:-phantom}@db:5432/${POSTGRES_DB:-phantom_permission}
+    command: ['npx', 'ts-node', '--transpile-only', 'prisma/seed.ts']
+
+volumes:
+  pgdata:

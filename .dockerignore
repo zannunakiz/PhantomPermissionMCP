@@ -1,0 +1,42 @@
+# Step 57 — build-context exclusions.
+# Keeps the production image small and guarantees secrets/local state
+# can never enter the build context.
+
+# Dependencies and build output (rebuilt inside the image from the lockfile)
+node_modules
+dist
+build
+coverage
+
+# Version control and CI metadata
+.git
+.github
+.gitignore
+
+# Environment files and local secrets — never sent to the daemon
+.env
+.env.*
+*.pem
+*.key
+
+# Local databases and scratch data
+*.db
+*.sqlite
+*.sqlite3
+
+# Docs, prompts, monitoring, and dev tooling not needed to build/run
+docs
+monitoring
+scripts
+prompt.md
+prompt-paste.txt
+README.md
+LICENSE
+docker-compose*.yml
+
+# Editor/OS noise
+.vscode
+.idea
+.DS_Store
+*.log
+npm-debug.log*

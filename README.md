@@ -59,6 +59,37 @@ $ npm run test:cov
 
 ## Deployment
 
+### Docker Compose (local)
+
+A complete local stack (app + PostgreSQL) runs with no paid services:
+
+```bash
+$ docker compose up -d --build   # build image, start db + app (health-gated)
+$ docker compose run --rm migrate  # apply Prisma migrations (idempotent)
+$ docker compose run --rm seed     # seed fictional demo data (idempotent)
+$ curl http://localhost:3000/health/ready   # {"status":"ok","database":"up"}
+```
+
+Reset everything (destructive — drops the database volume):
+
+```bash
+$ docker compose down -v
+```
+
+Optional monitoring (Prometheus + Grafana, disabled by default):
+
+```bash
+$ docker compose -f docker-compose.monitoring.yml --profile monitoring up -d
+```
+
+Configuration comes from environment variables (see `.env.example`); safe
+local defaults are built into `docker-compose.yml`. Set `API_KEY_PEPPER` in
+a local `.env` for any shared environment — the app refuses placeholder
+peppers in production mode. `migrate`/`seed` are one-shot services under the
+`tools` profile and never start with plain `up`.
+
+### Production
+
 When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
 
 If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
