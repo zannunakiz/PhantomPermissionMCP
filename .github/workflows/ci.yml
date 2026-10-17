@@ -177,10 +177,21 @@ jobs:
           docker compose up -d --build
           docker compose run --rm migrate
           docker compose run --rm seed
+          # Issue a real scoped key with the compose pepper (seed's demo key
+          # is a dummy digest that can never authenticate).
+          KEY="$(docker compose run --rm -T --entrypoint '' app \
+            node dist/src/auth/provision.cli.js key:issue \
+            --tenant tnt_demo_acme \
+            --scopes models:read,models:write,simulations:run,simulations:read,exports:read,audit:read \
+            2>/dev/null | head -1)"
+          echo "api_key=${KEY}" >> "$GITHUB_ENV"
           npx wait-on http://localhost:3000/health/live -t 120000
       - name: Run Newman collection
         if: steps.postman.outputs.present == 'true'
-        run: newman run postman/*.postman_collection.json --color on
+        run: |
+          newman run postman/*.postman_collection.json \
+            --env-var baseUrl=http://localhost:3000 \
+            --env-var api_key="$api_key"
       - name: Tear down
         if: always() && steps.postman.outputs.present == 'true'
         run: docker compose down -v

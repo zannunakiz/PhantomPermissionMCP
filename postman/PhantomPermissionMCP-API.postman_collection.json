@@ -1,0 +1,517 @@
+{
+  "info": {
+    "_postman_id": "5b1f0c8e-0000-4000-8000-phantom00060",
+    "name": "PhantomPermissionMCP API",
+    "description": "Every public REST route of the PhantomPermissionMCP v1 contract.\n\nAuth: bearer API key (`Authorization: Bearer {{api_key}}`) with route-scoped permissions:\n- models:read / models:write\n- simulations:run / simulations:read\n- exports:read\n- audit:read\n\nSet `baseUrl` and `api_key` in the imported environment (`PhantomPermissionMCP-Local`). Never commit real keys. Requests chain: Create Model stores `model_id`; Create Simulation stores `simulation_id`.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "noauth"
+  },
+  "item": [
+    {
+      "name": "Health & Metadata",
+      "item": [
+        {
+          "name": "Root — service info",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('returns greeting string', () => pm.expect(pm.response.text()).to.include('Hello'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/", "host": ["{{baseUrl}}"], "path": [""] },
+            "description": "Unauthenticated service greeting. 200 with plain string body."
+          }
+        },
+        {
+          "name": "Liveness — /health/live",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('status ok', () => pm.expect(pm.response.json().status).to.eql('ok'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/health/live", "host": ["{{baseUrl}}"], "path": ["health", "live"] },
+            "description": "Process liveness — pure in-process answer, no database needed. Used by Docker HEALTHCHECK."
+          }
+        },
+        {
+          "name": "Readiness — /health/ready",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 or 503', () => pm.expect([200, 503]).to.include(pm.response.code));",
+                  "pm.test('has database status', () => pm.expect(['up', 'down']).to.include(pm.response.json().database));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/health/ready", "host": ["{{baseUrl}}"], "path": ["health", "ready"] },
+            "description": "Database readiness probe (SELECT 1). 200 {status:ok,database:up} when the DB is reachable; 503 degraded otherwise. Never leaks connection details."
+          }
+        },
+        {
+          "name": "Metrics — /metrics",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Prometheus text format', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('text/plain'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/metrics", "host": ["{{baseUrl}}"], "path": ["metrics"] },
+            "description": "Unauthenticated Prometheus scrape endpoint (no tenant data). Disable with METRICS_ENABLED=false; restrict network exposure rather than removing the route."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Models",
+      "item": [
+        {
+          "name": "Create model",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.test('v1 + content hash', () => {",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.currentVersion).to.eql(1);",
+                  "  pm.expect(b.contentHash).to.match(/^sha256:/);",
+                  "});",
+                  "pm.collectionVariables.set('model_id', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_key}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"postman-demo-{{$randomUUID}}\",\n  \"snapshot\": {\n    \"roles\": [\n      { \"id\": \"viewer\", \"name\": \"viewer\" },\n      { \"id\": \"admin\", \"name\": \"admin\" }\n    ],\n    \"permissions\": [\n      { \"id\": \"invoice:read\", \"value\": \"invoice:read\" },\n      { \"id\": \"invoice:refund\", \"value\": \"invoice:refund\" }\n    ],\n    \"bindings\": [\n      { \"roleId\": \"viewer\", \"permissionId\": \"invoice:read\" },\n      { \"roleId\": \"admin\", \"permissionId\": \"invoice:refund\" }\n    ],\n    \"inheritance\": [\n      { \"childRoleId\": \"admin\", \"parentRoleId\": \"viewer\" }\n    ],\n    \"assignments\": [\n      { \"subjectId\": \"alice\", \"roleId\": \"viewer\" }\n    ],\n    \"subjects\": [\n      { \"id\": \"alice\" }\n    ]\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/api/v1/models", "host": ["{{baseUrl}}"], "path": ["api", "v1", "models"] },
+            "description": "Requires `models:write`. Creates model + version 1. Stores `model_id` for later requests. Duplicate names surface as 400 validation_failed with `details[].reason=duplicate`."
+          }
+        },
+        {
+          "name": "List models",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('paged envelope', () => {",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b).to.have.property('data');",
+                  "  pm.expect(b.page).to.have.all.keys('page', 'pageSize', 'total');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_key}}", "type": "string" }] },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/models?page=1&pageSize=20&orderBy=name",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "models"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "20" },
+                { "key": "orderBy", "value": "name", "description": "name | createdAt" }
+              ]
+            },
+            "description": "Requires `models:read`. Tenant-scoped page: `{ data: ModelSummary[], page: { pageSize, total } }`. Snapshots are never inlined in list results."
+          }
+        },
+        {
+          "name": "Get model detail",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('has version + hash', () => {",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b).to.have.property('version');",
+                  "  pm.expect(b.contentHash).to.match(/^sha256:/);",
+                  "  pm.collectionVariables.set('content_hash', b.contentHash);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_key}}", "type": "string" }] },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/models/{{model_id}}?version=1",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "models", "{{model_id}}"],
+              "query": [{ "key": "version", "value": "1", "description": "Optional specific version; defaults to currentVersion" }]
+            },
+            "description": "Requires `models:read`. 404 not_found for unknown or cross-tenant ids; 400 validation_failed for malformed ids. Stores `content_hash` for the optional If-Match header."
+          }
+        },
+        {
+          "name": "Create model version",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.test('version 2 issued', () => pm.expect(pm.response.json().version).to.eql(2));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_key}}", "type": "string" }] },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "If-Match", "value": "\"{{content_hash}}\"", "description": "Optional optimistic lock: current contentHash ETag. Stale -> 409 conflict_version.", "disabled": true }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expectedVersion\": 1,\n  \"snapshot\": {\n    \"roles\": [\n      { \"id\": \"viewer\", \"name\": \"viewer\" },\n      { \"id\": \"admin\", \"name\": \"admin\" },\n      { \"id\": \"auditor\", \"name\": \"auditor\" }\n    ],\n    \"permissions\": [\n      { \"id\": \"invoice:read\", \"value\": \"invoice:read\" },\n      { \"id\": \"invoice:refund\", \"value\": \"invoice:refund\" }\n    ],\n    \"bindings\": [\n      { \"roleId\": \"viewer\", \"permissionId\": \"invoice:read\" },\n      { \"roleId\": \"admin\", \"permissionId\": \"invoice:refund\" }\n    ],\n    \"inheritance\": [\n      { \"childRoleId\": \"admin\", \"parentRoleId\": \"viewer\" }\n    ],\n    \"assignments\": [\n      { \"subjectId\": \"alice\", \"roleId\": \"viewer\" }\n    ],\n    \"subjects\": [\n      { \"id\": \"alice\" }\n    ]\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/api/v1/models/{{model_id}}/versions", "host": ["{{baseUrl}}"], "path": ["api", "v1", "models", "{{model_id}}", "versions"] },
+            "description": "Requires `models:write`. Optimistic concurrency: `expectedVersion` or `If-Match` ETag. Stale/duplicate -> 409 `{ error.code: conflict_version }`; history is never forked."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Simulations",
+      "item": [
+        {
+          "name": "Create simulation",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.test('completed + summary', () => {",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.status).to.eql('completed');",
+                  "  pm.expect(b).to.have.property('summary');",
+                  "  pm.collectionVariables.set('simulation_id', b.id);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_key}}", "type": "string" }] },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "postman-{{$randomUUID}}", "description": "Unique per run so the scenario is repeatable. Replays with the same key + body return the same result; same key + different body -> 409 idempotency_conflict." }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"modelId\": \"{{model_id}}\",\n  \"version\": 1,\n  \"operations\": [\n    {\n      \"type\": \"grant_permission\",\n      \"roleId\": \"viewer\",\n      \"permissionId\": \"invoice:refund\"\n    }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/api/v1/simulations", "host": ["{{baseUrl}}"], "path": ["api", "v1", "simulations"] },
+            "description": "Requires `simulations:run`. Dry-run analysis only — the service never applies changes to a live authorization system. Stores `simulation_id`. Unknown model/version -> 404; invalid operations -> 400 validation_failed."
+          }
+        },
+        {
+          "name": "Get simulation detail",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('has provenance', () => {",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.provenance).to.have.all.keys('modelId', 'version', 'contentHash', 'operations', 'createdAt');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_key}}", "type": "string" }] },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/v1/simulations/{{simulation_id}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "simulations", "{{simulation_id}}"] },
+            "description": "Requires `simulations:read`. Returns summary plus immutable provenance (modelId, version, contentHash, operations). Unknown/cross-tenant -> 404."
+          }
+        },
+        {
+          "name": "Get simulation report",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('impacts + disclaimer + provenance', () => {",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b).to.include.keys('impacts', 'findings', 'disclaimer', 'provenance', 'page');",
+                  "  pm.expect(b.disclaimer).to.eql('Findings are advisory only.');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_key}}", "type": "string" }] },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/simulations/{{simulation_id}}/report?page=1&pageSize=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "simulations", "{{simulation_id}}", "report"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "20", "description": "max 200 per page" }
+              ]
+            },
+            "description": "Requires `simulations:read`. Paged per-subject impacts plus advisory risk findings. Deterministic ordering; identical repeat calls return identical bodies."
+          }
+        },
+        {
+          "name": "Export report (JSON)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 JSON', () => pm.response.to.have.status(200));",
+                  "pm.test('content-type json', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_key}}", "type": "string" }] },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/simulations/{{simulation_id}}/export?format=json",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "simulations", "{{simulation_id}}", "export"],
+              "query": [{ "key": "format", "value": "json", "description": "json | csv — anything else -> 400 validation_failed" }]
+            },
+            "description": "Requires `exports:read`. Full report without pagination; stable row ordering."
+          }
+        },
+        {
+          "name": "Export report (CSV)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 CSV', () => pm.response.to.have.status(200));",
+                  "pm.test('csv header row', () => pm.expect(pm.response.text()).to.include('subject_id,change,permission'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_key}}", "type": "string" }] },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/simulations/{{simulation_id}}/export?format=csv",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "simulations", "{{simulation_id}}", "export"],
+              "query": [{ "key": "format", "value": "csv" }]
+            },
+            "description": "Requires `exports:read`. CSV with `subject_id,change,permission` header and RFC-style escaping."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Audit",
+      "item": [
+        {
+          "name": "List audit events",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('paged audit envelope', () => {",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b).to.have.property('data');",
+                  "  pm.expect(b.page).to.have.all.keys('page', 'pageSize', 'total');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_key}}", "type": "string" }] },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/audit-events?page=1&pageSize=20&type=MODEL_CREATED",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "audit-events"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "20" },
+                { "key": "type", "value": "MODEL_CREATED", "description": "Optional filter: MODEL_CREATED | MODEL_VERSION_CREATED | SIMULATION_CREATED | SIMULATION_FAILED | API_KEY_ISSUED | API_KEY_REVOKED | API_KEY_EXPIRED | REPORT_EXPORTED", "disabled": true }
+              ]
+            },
+            "description": "Requires `audit:read`. Tenant-scoped, redacted audit trail — metadata never contains key material or snapshots."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Negative Examples",
+      "item": [
+        {
+          "name": "401 without API key",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 unauthorized', () => pm.response.to.have.status(401));",
+                  "pm.test('stable error envelope', () => {",
+                  "  const e = pm.response.json().error;",
+                  "  pm.expect(e.code).to.eql('unauthorized');",
+                  "  pm.expect(e.status).to.eql(401);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/v1/models", "host": ["{{baseUrl}}"], "path": ["api", "v1", "models"] },
+            "description": "Missing/invalid/revoked/expired keys all return the same 401 envelope — never reveals why."
+          }
+        },
+        {
+          "name": "400 validation failure",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 validation_failed', () => pm.response.to.have.status(400));",
+                  "pm.test('details carry path+reason only', () => {",
+                  "  const e = pm.response.json().error;",
+                  "  pm.expect(e.code).to.eql('validation_failed');",
+                  "  pm.expect(e.details[0]).to.have.all.keys('path', 'reason');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_key}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"\",\n  \"snapshot\": { \"roles\": [] }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/api/v1/models", "host": ["{{baseUrl}}"], "path": ["api", "v1", "models"] },
+            "description": "Invalid body -> 400 validation_failed with field-level `{ path, reason }` findings. Input values are never echoed back."
+          }
+        },
+        {
+          "name": "404 unknown model",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 not_found', () => pm.response.to.have.status(404));",
+                  "pm.test('stable error envelope', () => pm.expect(pm.response.json().error.code).to.eql('not_found'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_key}}", "type": "string" }] },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/v1/models/mdl_doesnotexist000000000000", "host": ["{{baseUrl}}"], "path": ["api", "v1", "models", "mdl_doesnotexist000000000000"] },
+            "description": "Unknown ids and cross-tenant ids are indistinguishable -> both 404 not_found (no IDOR information leak)."
+          }
+        }
+      ]
+    }
+  ]
+}
