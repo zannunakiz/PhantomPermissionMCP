@@ -10,11 +10,13 @@ import type { SimulationWithFindings } from '../domain/risk-rules';
 import { simulateWithFindings } from '../domain/risk-rules';
 import {
   ACCESS_MODEL_REPOSITORY as AMR,
+  AUDIT_REPOSITORY as AudR,
   IDEMPOTENCY_REPOSITORY as IR,
   MODEL_VERSION_REPOSITORY as MVR,
   SIMULATION_REPOSITORY as SR,
 } from '../repositories/tokens';
 import type { AccessModelRepository } from '../repositories/access-model.repository';
+import type { AuditRepository } from '../repositories/audit.repository';
 import type { IdempotencyRepository } from '../repositories/idempotency.repository';
 import type { ModelVersionRepository } from '../repositories/model-version.repository';
 import type { SimulationRepository } from '../repositories/simulation.repository';
@@ -55,8 +57,32 @@ export class SimulationsService {
     @Inject(MVR) private readonly versions: ModelVersionRepository,
     @Inject(SR) private readonly simulations: SimulationRepository,
     @Inject(IR) private readonly idempotency: IdempotencyRepository,
+    @Optional() @Inject(AudR) private readonly audit?: AuditRepository,
     @Optional() private readonly tracing?: TracingService,
   ) {}
+
+  /** Best-effort append — mirrors ModelsService.record. */
+  private async record(
+    ctx: TenantContext,
+    type: 'SIMULATION_CREATED' | 'REPORT_EXPORTED',
+    resourceId: string,
+    metadata: Record<string, unknown>,
+  ): Promise<void> {
+    if (!this.audit) return;
+    try {
+      await this.audit.append({
+        id: `evt_${randomUUID().replace(/-/g, '').slice(0, 24)}`,
+        tenantId: ctx.tenantId,
+        type,
+        actorKeyPrefix: ctx.keyPrefix ?? '',
+        resourceType: 'simulation',
+        resourceId,
+        metadata,
+      });
+    } catch {
+      // Never mask the committed result; Step 23 storage stays authoritative.
+    }
+  }
 
   async createSimulation(
     ctx: TenantContext,
@@ -136,6 +162,11 @@ export class SimulationsService {
       disclaimer: DISCLAIMER,
     });
     const response = { id, status: 'completed', summary: summaryJson };
+    await this.record(ctx, 'SIMULATION_CREATED', id, {
+      modelId: model.id,
+      version: version.version,
+      operationCount: (body.operations as unknown[]).length,
+    });
     if (key) {
       try {
         await this.idempotency.create({
@@ -300,6 +331,10 @@ export class SimulationsService {
           createdAt: toISOString(sim.createdAt),
         },
       };
+      await this.record(ctx, 'REPORT_EXPORTED', sim.id, {
+        format,
+        rowCount: rows.length,
+      });
       return {
         contentType: 'application/json',
         body: JSON.stringify(payload),
@@ -313,6 +348,10 @@ export class SimulationsService {
         [cell(row.subjectId), cell(row.change), cell(row.permission)].join(','),
       );
     }
+    await this.record(ctx, 'REPORT_EXPORTED', sim.id, {
+      format,
+      rowCount: rows.length,
+    });
     return { contentType: 'text/csv', body: lines.join('\n') + '\n' };
   }
 }

@@ -1,0 +1,1678 @@
+{
+  "info": {
+    "_postman_id": "5b1f0c8e-0000-4000-8000-phantom00061",
+    "name": "PhantomPermissionMCP Scenarios",
+    "description": "Step 61 — repeatable positive and negative API scenarios for the full v1 lifecycle.\n\nRun with Newman against a live local stack (Docker Compose):\n  newman run postman/PhantomPermissionMCP-Scenarios.postman_collection.json \\n    --env-var baseUrl=http://localhost:3000 \\n    --env-var api_key=ppk_...\n\nRequired environment variables: baseUrl, api_key (full-scope key).\nOptional (scenarios skip gracefully when unset):\n- api_key_readonly — key with only models:read (scope-denial scenario).\n- other_tenant_model_id — a model id from ANOTHER tenant (tenant-isolation scenario; falls back to an unknown id).\n- run_rate_limit — set to true to enable the rate-limit burst scenario (off by default so the suite stays fast and does not poison the rate budget).\n\nEvery run creates a fresh model/simulation with test-generated ids; no hard-coded keys or shared state.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "noauth"
+  },
+  "item": [
+    {
+      "name": "01 Lifecycle — model, version, simulation, report, export",
+      "item": [
+        {
+          "name": "Create model (v1)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('model_name', 'scenarios-' + pm.variables.replaceIn('{{$randomUUID}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.test('v1 + sha256 content hash + id prefix', () => {",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.currentVersion).to.eql(1);",
+                  "  pm.expect(b.id).to.match(/^mdl_/);",
+                  "  pm.expect(b.contentHash).to.match(/^sha256:/);",
+                  "  pm.collectionVariables.set('model_id', b.id);",
+                  "  pm.collectionVariables.set('content_hash', b.contentHash);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{api_key}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{model_name}}\",\n  \"snapshot\": {\n    \"roles\": [\n      { \"id\": \"viewer\", \"name\": \"viewer\" },\n      { \"id\": \"admin\", \"name\": \"admin\" }\n    ],\n    \"permissions\": [\n      { \"id\": \"invoice:read\", \"value\": \"invoice:read\" },\n      { \"id\": \"invoice:refund\", \"value\": \"invoice:refund\" }\n    ],\n    \"bindings\": [\n      { \"roleId\": \"viewer\", \"permissionId\": \"invoice:read\" },\n      { \"roleId\": \"admin\", \"permissionId\": \"invoice:refund\" }\n    ],\n    \"inheritance\": [\n      { \"childRoleId\": \"admin\", \"parentRoleId\": \"viewer\" }\n    ],\n    \"assignments\": [\n      { \"subjectId\": \"alice\", \"roleId\": \"viewer\" }\n    ],\n    \"subjects\": [\n      { \"id\": \"alice\" }\n    ]\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/models",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "models"
+              ]
+            },
+            "description": "Creates a fresh test model; stores model_id, model_name, content_hash."
+          }
+        },
+        {
+          "name": "Get model detail (capture ETag)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('version 1 + hash stored for If-Match scenarios', () => {",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.version).to.eql(1);",
+                  "  pm.expect(b.contentHash).to.match(/^sha256:/);",
+                  "  pm.collectionVariables.set('content_hash', b.contentHash);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{api_key}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/models/{{model_id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "models",
+                "{{model_id}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create model version 2",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.test('version advanced to 2', () => {",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.version).to.eql(2);",
+                  "  pm.expect(b.contentHash).to.match(/^sha256:/);",
+                  "  pm.collectionVariables.set('content_hash', b.contentHash);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{api_key}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expectedVersion\": 1,\n  \"snapshot\": {\n    \"roles\": [\n      { \"id\": \"viewer\", \"name\": \"viewer\" },\n      { \"id\": \"admin\", \"name\": \"admin\" },\n      { \"id\": \"auditor\", \"name\": \"auditor\" }\n    ],\n    \"permissions\": [\n      { \"id\": \"invoice:read\", \"value\": \"invoice:read\" },\n      { \"id\": \"invoice:refund\", \"value\": \"invoice:refund\" }\n    ],\n    \"bindings\": [\n      { \"roleId\": \"viewer\", \"permissionId\": \"invoice:read\" },\n      { \"roleId\": \"admin\", \"permissionId\": \"invoice:refund\" }\n    ],\n    \"inheritance\": [\n      { \"childRoleId\": \"admin\", \"parentRoleId\": \"viewer\" }\n    ],\n    \"assignments\": [\n      { \"subjectId\": \"alice\", \"roleId\": \"viewer\" }\n    ],\n    \"subjects\": [\n      { \"id\": \"alice\" }\n    ]\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/models/{{model_id}}/versions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "models",
+                "{{model_id}}",
+                "versions"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create simulation (grant invoice:refund to viewer)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.test('completed + summary', () => {",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.status).to.eql('completed');",
+                  "  pm.expect(b.id).to.match(/^sim_/);",
+                  "  pm.expect(b).to.have.property('summary');",
+                  "  pm.collectionVariables.set('simulation_id', b.id);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{api_key}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "scn-{{$randomUUID}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"modelId\": \"{{model_id}}\",\n  \"version\": 1,\n  \"operations\": [\n    {\n      \"type\": \"grant_permission\",\n      \"roleId\": \"viewer\",\n      \"permissionId\": \"invoice:refund\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/simulations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "simulations"
+              ]
+            },
+            "description": "Dry-run diff: alice (viewer) should gain invoice:refund. Stores simulation_id."
+          }
+        },
+        {
+          "name": "Get simulation detail (provenance)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('immutable provenance present', () => {",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.provenance).to.have.all.keys('modelId', 'version', 'contentHash', 'operations', 'createdAt');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{api_key}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/simulations/{{simulation_id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "simulations",
+                "{{simulation_id}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Simulation report — diff assertions",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('diff shows alice gained invoice:refund', () => {",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.disclaimer).to.eql('Findings are advisory only.');",
+                  "  pm.expect(b).to.include.keys('impacts', 'findings', 'disclaimer', 'provenance', 'page');",
+                  "  const alice = b.impacts.find((i) => i.subjectId === 'alice');",
+                  "  pm.expect(alice, 'alice has an impact row').to.exist;",
+                  "  pm.expect(alice.added).to.include('invoice:refund');",
+                  "  pm.expect(alice.removed).to.eql([]);",
+                  "  pm.expect(Array.isArray(b.findings)).to.be.true;",
+                  "});",
+                  "pm.collectionVariables.set('report_snapshot', pm.response.text());"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{api_key}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/simulations/{{simulation_id}}/report?page=1&pageSize=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "simulations",
+                "{{simulation_id}}",
+                "report"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Simulation report — determinism (identical body)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('repeat call returns byte-identical report', () => {",
+                  "  pm.expect(pm.response.text()).to.eql(pm.collectionVariables.get('report_snapshot'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{api_key}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/simulations/{{simulation_id}}/report?page=1&pageSize=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "simulations",
+                "{{simulation_id}}",
+                "report"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Export JSON",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 JSON', () => pm.response.to.have.status(200));",
+                  "pm.test('json export carries impacts + provenance', () => {",
+                  "  pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(Array.isArray(b.impacts)).to.be.true;",
+                  "  pm.expect(b.provenance.modelId).to.eql(pm.collectionVariables.get('model_id'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{api_key}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/simulations/{{simulation_id}}/export?format=json",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "simulations",
+                "{{simulation_id}}",
+                "export"
+              ],
+              "query": [
+                {
+                  "key": "format",
+                  "value": "json"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Export CSV",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 CSV', () => pm.response.to.have.status(200));",
+                  "pm.test('csv header + alice row present', () => {",
+                  "  const t = pm.response.text();",
+                  "  pm.expect(t).to.include('subject_id,change,permission');",
+                  "  pm.expect(t).to.include('alice,added,invoice:refund');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{api_key}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/simulations/{{simulation_id}}/export?format=csv",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "simulations",
+                "{{simulation_id}}",
+                "export"
+              ],
+              "query": [
+                {
+                  "key": "format",
+                  "value": "csv"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 Negative — validation errors",
+      "item": [
+        {
+          "name": "400 — empty model name",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 validation_failed', () => pm.response.to.have.status(400));",
+                  "pm.test('details carry path+reason only, envelope has requestId', () => {",
+                  "  const e = pm.response.json().error;",
+                  "  pm.expect(e.code).to.eql('validation_failed');",
+                  "  pm.expect(e.details[0]).to.have.all.keys('path', 'reason');",
+                  "  pm.expect(e.requestId).to.be.a('string').and.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{api_key}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"\",\n  \"snapshot\": { \"roles\": [] }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/models",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "models"
+              ]
+            }
+          }
+        },
+        {
+          "name": "400 — duplicate model name in tenant",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 validation_failed', () => pm.response.to.have.status(400));",
+                  "pm.test('duplicate reason on name', () => {",
+                  "  const e = pm.response.json().error;",
+                  "  pm.expect(e.code).to.eql('validation_failed');",
+                  "  const dup = e.details.find((d) => d.path === 'name' && d.reason === 'duplicate');",
+                  "  pm.expect(dup, 'name duplicate detail').to.exist;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{api_key}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{model_name}}\",\n  \"snapshot\": {\n    \"roles\": [ { \"id\": \"viewer\", \"name\": \"viewer\" } ],\n    \"permissions\": [ { \"id\": \"invoice:read\", \"value\": \"invoice:read\" } ],\n    \"bindings\": [ { \"roleId\": \"viewer\", \"permissionId\": \"invoice:read\" } ],\n    \"inheritance\": [],\n    \"assignments\": [],\n    \"subjects\": []\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/models",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "models"
+              ]
+            }
+          }
+        },
+        {
+          "name": "400 — invalid snapshot (unresolved role reference)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 validation_failed', () => pm.response.to.have.status(400));",
+                  "pm.test('references unresolvable role rejected', () => {",
+                  "  pm.expect(pm.response.json().error.code).to.eql('validation_failed');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{api_key}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"bad-ref-{{$randomUUID}}\",\n  \"snapshot\": {\n    \"roles\": [ { \"id\": \"viewer\", \"name\": \"viewer\" } ],\n    \"permissions\": [ { \"id\": \"invoice:read\", \"value\": \"invoice:read\" } ],\n    \"bindings\": [ { \"roleId\": \"ghost\", \"permissionId\": \"invoice:read\" } ],\n    \"inheritance\": [],\n    \"assignments\": [],\n    \"subjects\": []\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/models",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "models"
+              ]
+            }
+          }
+        },
+        {
+          "name": "400 — invalid simulation operation (ghost role)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 validation_failed', () => pm.response.to.have.status(400));",
+                  "pm.test('operation input rejected', () => {",
+                  "  pm.expect(pm.response.json().error.code).to.eql('validation_failed');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{api_key}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"modelId\": \"{{model_id}}\",\n  \"version\": 1,\n  \"operations\": [\n    { \"type\": \"grant_permission\", \"roleId\": \"ghost\", \"permissionId\": \"invoice:read\" }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/simulations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "simulations"
+              ]
+            }
+          }
+        },
+        {
+          "name": "404 — simulation on unknown model",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 not_found', () => pm.response.to.have.status(404));",
+                  "pm.test('unknown model id -> not_found', () => {",
+                  "  pm.expect(pm.response.json().error.code).to.eql('not_found');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{api_key}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"modelId\": \"mdl_doesnotexist000000000000\",\n  \"operations\": [\n    { \"type\": \"grant_permission\", \"roleId\": \"viewer\", \"permissionId\": \"invoice:read\" }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/simulations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "simulations"
+              ]
+            }
+          }
+        },
+        {
+          "name": "400 — invalid pagination (page=0)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 validation_failed', () => pm.response.to.have.status(400));",
+                  "pm.test('page below minimum rejected', () => {",
+                  "  pm.expect(pm.response.json().error.code).to.eql('validation_failed');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{api_key}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/models?page=0",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "models"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "0"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "400 — invalid export format",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 validation_failed', () => pm.response.to.have.status(400));",
+                  "pm.test('unsupported format rejected', () => {",
+                  "  pm.expect(pm.response.json().error.code).to.eql('validation_failed');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{api_key}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/simulations/{{simulation_id}}/export?format=xml",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "simulations",
+                "{{simulation_id}}",
+                "export"
+              ],
+              "query": [
+                {
+                  "key": "format",
+                  "value": "xml"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 Negative — auth failures",
+      "item": [
+        {
+          "name": "401 — missing API key",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 unauthorized', () => pm.response.to.have.status(401));",
+                  "pm.test('stable envelope, no leak', () => {",
+                  "  const e = pm.response.json().error;",
+                  "  pm.expect(e.code).to.eql('unauthorized');",
+                  "  pm.expect(e.status).to.eql(401);",
+                  "  pm.expect(e.message.toLowerCase()).to.not.include('ppk_');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/models",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "models"
+              ]
+            }
+          }
+        },
+        {
+          "name": "401 — invalid API key",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 unauthorized (indistinguishable from missing)', () => pm.response.to.have.status(401));",
+                  "pm.test('same code as missing key', () => pm.expect(pm.response.json().error.code).to.eql('unauthorized'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "ppk_zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/models",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "models"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 Negative — scope denial",
+      "item": [
+        {
+          "name": "403 — read-only key cannot write models",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ro = pm.environment.get('api_key_readonly') || pm.collectionVariables.get('api_key_readonly') || '';",
+                  "pm.collectionVariables.set('ro_active', ro.startsWith('ppk_') ? 'true' : 'false');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.collectionVariables.get('ro_active') !== 'true') {",
+                  "  console.log('SKIP: set api_key_readonly (models:read only) to run this scenario.');",
+                  "} else {",
+                  "  pm.test('403 forbidden_scope', () => pm.response.to.have.status(403));",
+                  "  pm.test('code + missing scope named, no key material leaked', () => {",
+                  "    const e = pm.response.json().error;",
+                  "    pm.expect(e.code).to.eql('forbidden_scope');",
+                  "    pm.expect(e.message).to.include('models:write');",
+                  "    pm.expect(pm.response.text()).to.not.include(pm.environment.get('api_key_readonly'));",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{api_key_readonly}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"scope-denied-{{$randomUUID}}\",\n  \"snapshot\": { \"roles\": [] }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/models",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "models"
+              ]
+            },
+            "description": "Requires optional api_key_readonly. Skips silently when unset."
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 Negative — tenant isolation",
+      "item": [
+        {
+          "name": "404 — foreign/unknown model id indistinguishable",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const foreign = pm.environment.get('other_tenant_model_id') || 'mdl_doesnotexist000000000000';",
+                  "pm.collectionVariables.set('foreign_model_id', foreign);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 not_found — no existence oracle', () => pm.response.to.have.status(404));",
+                  "pm.test('code is not_found (never 403)', () => {",
+                  "  const e = pm.response.json().error;",
+                  "  pm.expect(e.code).to.eql('not_found');",
+                  "  pm.expect(e.status).to.eql(404);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{api_key}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/models/{{foreign_model_id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "models",
+                "{{foreign_model_id}}"
+              ]
+            },
+            "description": "With other_tenant_model_id set this proves cross-tenant reads are 404; otherwise the unknown-id fallback proves the same envelope."
+          }
+        }
+      ]
+    },
+    {
+      "name": "06 Conflicts — version + idempotency",
+      "item": [
+        {
+          "name": "409 — stale expectedVersion",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 conflict_version', () => pm.response.to.have.status(409));",
+                  "pm.test('stale expectedVersion detail', () => {",
+                  "  const e = pm.response.json().error;",
+                  "  pm.expect(e.code).to.eql('conflict_version');",
+                  "  const stale = e.details.find((d) => d.path === 'expectedVersion' && d.reason === 'stale');",
+                  "  pm.expect(stale, 'stale detail').to.exist;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{api_key}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"expectedVersion\": 1,\n  \"snapshot\": {\n    \"roles\": [ { \"id\": \"viewer\", \"name\": \"viewer\" } ],\n    \"permissions\": [ { \"id\": \"invoice:read\", \"value\": \"invoice:read\" } ],\n    \"bindings\": [ { \"roleId\": \"viewer\", \"permissionId\": \"invoice:read\" } ],\n    \"inheritance\": [],\n    \"assignments\": [],\n    \"subjects\": []\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/models/{{model_id}}/versions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "models",
+                "{{model_id}}",
+                "versions"
+              ]
+            },
+            "description": "Current version is 2 (created in lifecycle); expectedVersion 1 must fail and never fork history."
+          }
+        },
+        {
+          "name": "Idempotency — first create",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('idem_key', 'scn-idem-' + pm.variables.replaceIn('{{$randomUUID}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.test('stores first simulation id for replay comparison', () => {",
+                  "  pm.collectionVariables.set('idem_sim_id', pm.response.json().id);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{api_key}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idem_key}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"modelId\": \"{{model_id}}\",\n  \"version\": 1,\n  \"operations\": [\n    { \"type\": \"unassign_role\", \"subjectId\": \"alice\", \"roleId\": \"viewer\" }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/simulations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "simulations"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Idempotency — replay same key + body",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 replayed (original status)', () => pm.response.to.have.status(201));",
+                  "pm.test('same simulation id — no duplicate side effect', () => {",
+                  "  pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('idem_sim_id'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{api_key}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idem_key}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"modelId\": \"{{model_id}}\",\n  \"version\": 1,\n  \"operations\": [\n    { \"type\": \"unassign_role\", \"subjectId\": \"alice\", \"roleId\": \"viewer\" }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/simulations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "simulations"
+              ]
+            }
+          }
+        },
+        {
+          "name": "409 — same key, different body",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 idempotency_conflict', () => pm.response.to.have.status(409));",
+                  "pm.test('code matches contract', () => pm.expect(pm.response.json().error.code).to.eql('idempotency_conflict'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{api_key}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idem_key}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"modelId\": \"{{model_id}}\",\n  \"version\": 1,\n  \"operations\": [\n    { \"type\": \"unassign_role\", \"subjectId\": \"alice\", \"roleId\": \"admin\" }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/simulations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "simulations"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "07 Pagination & audit access",
+      "item": [
+        {
+          "name": "List models — paged envelope + own model visible",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('paged envelope + fresh model listed', () => {",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.page).to.have.all.keys('page', 'pageSize', 'total');",
+                  "  pm.expect(b.page.page).to.eql(1);",
+                  "  pm.expect(b.data.map((m) => m.id)).to.include(pm.collectionVariables.get('model_id'));",
+                  "  pm.expect(b.data[0], 'list rows carry no full snapshot').to.not.have.property('snapshot');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{api_key}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/models?page=1&pageSize=100&orderBy=name",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "models"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "100",
+                  "description": "documented max — robust across repeated local runs"
+                },
+                {
+                  "key": "orderBy",
+                  "value": "name"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "List models — page beyond total is empty, not error",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('out-of-range page returns empty data', () => {",
+                  "  pm.expect(pm.response.json().data).to.eql([]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{api_key}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/models?page=99999&pageSize=5",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "models"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "99999"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "5"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Audit events — MODEL_CREATED trail, redacted metadata",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('paged audit envelope', () => {",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.page).to.have.all.keys('page', 'pageSize', 'total');",
+                  "  pm.expect(Array.isArray(b.data)).to.be.true;",
+                  "});",
+                  "pm.test('our model creation is audited, actor is key prefix only, no key material', () => {",
+                  "  const b = pm.response.json();",
+                  "  const evt = b.data.find((e) => e.resourceId === pm.collectionVariables.get('model_id'));",
+                  "  pm.expect(evt, 'MODEL_CREATED event for fresh model').to.exist;",
+                  "  pm.expect(evt.type).to.eql('MODEL_CREATED');",
+                  "  pm.expect(evt.actorKeyPrefix).to.match(/^ppk_/);",
+                  "  pm.expect(evt.actorKeyPrefix.length).to.be.lessThan(20);",
+                  "  const key = pm.environment.get('api_key') || '';",
+                  "  if (key) pm.expect(pm.response.text()).to.not.include(key);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{api_key}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/audit-events?page=1&pageSize=20&type=MODEL_CREATED",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "audit-events"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                },
+                {
+                  "key": "type",
+                  "value": "MODEL_CREATED"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "08 Rate limiting (opt-in)",
+      "item": [
+        {
+          "name": "429 — rate limit burst",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const enabled = (pm.environment.get('run_rate_limit') || pm.collectionVariables.get('run_rate_limit')) === 'true';",
+                  "const base = pm.environment.get('baseUrl') || pm.collectionVariables.get('baseUrl');",
+                  "const key = pm.environment.get('api_key') || pm.collectionVariables.get('api_key');",
+                  "if (!enabled) {",
+                  "  console.log('SKIP: set run_rate_limit=true to enable the burst scenario.');",
+                  "  pm.collectionVariables.set('rate_limit_hit', 'skip');",
+                  "} else {",
+                  "  pm.collectionVariables.set('rate_limit_hit', 'false');",
+                  "  let sent = 0;",
+                  "  const MAX = 130;",
+                  "  const send = () => {",
+                  "    pm.sendRequest({",
+                  "      url: base + '/api/v1/models?page=1&pageSize=1',",
+                  "      header: { Authorization: 'Bearer ' + key },",
+                  "    }, (err, res) => {",
+                  "      sent += 1;",
+                  "      if ((res && res.code) === 429) {",
+                  "        pm.collectionVariables.set('rate_limit_hit', 'true');",
+                  "        return;",
+                  "      }",
+                  "      if (sent < MAX && pm.collectionVariables.get('rate_limit_hit') !== 'true') send();",
+                  "    });",
+                  "  };",
+                  "  send();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const state = pm.collectionVariables.get('rate_limit_hit');",
+                  "if (state === 'skip') {",
+                  "  console.log('SKIP: rate-limit burst disabled (run_rate_limit=true to enable).');",
+                  "} else {",
+                  "  pm.test('burst exhausted the rate window with 429', () => pm.expect(state).to.eql('true'));",
+                  "  pm.test('429 envelope + Retry-After header', () => {",
+                  "    pm.response.to.have.status(429);",
+                  "    const e = pm.response.json().error;",
+                  "    pm.expect(e.code).to.eql('rate_limited');",
+                  "    pm.expect(e.status).to.eql(429);",
+                  "    pm.expect(pm.response.headers.get('Retry-After')).to.exist;",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{api_key}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/models?page=1&pageSize=1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "models"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "1"
+                }
+              ]
+            },
+            "description": "Opt-in: pre-request fires a burst until the limiter trips, then this request asserts the 429 envelope. Keep last so the exhausted window does not affect other scenarios."
+          }
+        }
+      ]
+    }
+  ]
+}

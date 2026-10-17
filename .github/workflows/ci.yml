@@ -156,17 +156,16 @@ jobs:
       - run: npm ci
       - run: npm run prisma:generate
       - run: npm run build
-      # The Postman collection lands in Step 60. Until then this step is a
-      # clean no-op; afterwards it runs the same documented commands:
-      #   app on :3000, migrate + seed, then newman against the collection.
-      - name: Check for Postman collection
+      # Postman collections (Steps 60/61): API reference + scenario suite.
+      # Both run against the compose stack with freshly issued keys.
+      - name: Check for Postman collections
         id: postman
         run: |
           if ls postman/*.postman_collection.json >/dev/null 2>&1; then
             echo "present=true" >> "$GITHUB_OUTPUT"
           else
             echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "No Postman collection yet (Step 60) — skipping Newman."
+            echo "No Postman collections yet — skipping Newman."
           fi
       - name: Install Newman
         if: steps.postman.outputs.present == 'true'
@@ -177,21 +176,37 @@ jobs:
           docker compose up -d --build
           docker compose run --rm migrate
           docker compose run --rm seed
-          # Issue a real scoped key with the compose pepper (seed's demo key
-          # is a dummy digest that can never authenticate).
+          # Issue real scoped keys with the compose pepper (seed's demo key
+          # is a dummy digest that can never authenticate). The read-only
+          # key powers the 403 forbidden_scope scenario in Step 61.
           KEY="$(docker compose run --rm -T --entrypoint '' app \
             node dist/src/auth/provision.cli.js key:issue \
             --tenant tnt_demo_acme \
             --scopes models:read,models:write,simulations:run,simulations:read,exports:read,audit:read \
             2>/dev/null | head -1)"
+          RO_KEY="$(docker compose run --rm -T --entrypoint '' app \
+            node dist/src/auth/provision.cli.js key:issue \
+            --tenant tnt_demo_acme \
+            --scopes models:read \
+            2>/dev/null | head -1)"
           echo "api_key=${KEY}" >> "$GITHUB_ENV"
+          echo "api_key_readonly=${RO_KEY}" >> "$GITHUB_ENV"
           npx wait-on http://localhost:3000/health/live -t 120000
-      - name: Run Newman collection
+      - name: Run API collection (Step 60)
         if: steps.postman.outputs.present == 'true'
         run: |
-          newman run postman/*.postman_collection.json \
+          newman run postman/PhantomPermissionMCP-API.postman_collection.json \
             --env-var baseUrl=http://localhost:3000 \
             --env-var api_key="$api_key"
+      - name: Run scenario collection (Step 61)
+        if: steps.postman.outputs.present == 'true'
+        run: |
+          # Rate-limit burst stays opt-in (run_rate_limit) so the shared
+          # fixed window does not 429 subsequent steps.
+          newman run postman/PhantomPermissionMCP-Scenarios.postman_collection.json \
+            --env-var baseUrl=http://localhost:3000 \
+            --env-var api_key="$api_key" \
+            --env-var api_key_readonly="$api_key_readonly"
       - name: Tear down
         if: always() && steps.postman.outputs.present == 'true'
         run: docker compose down -v
