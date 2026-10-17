@@ -3,6 +3,8 @@
   "rootDir": "../src",
   "testEnvironment": "node",
   "testRegex": ".int-spec.ts$",
+  "globalSetup": "../scripts/integration-global-setup.js",
+  "globalTeardown": "../scripts/integration-global-teardown.js",
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
   }

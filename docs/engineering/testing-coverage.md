@@ -4,8 +4,10 @@
   Covers domain engine (`src/domain`) + critical services (auth, common, config,
   health, mcp, metrics, models, simulations, tenancy, tracing, repositories).
 - **Integration tests** (`src/**/*.int-spec.ts`, `npm run test:integration`):
-  disposable test DB only, migrations applied first. Never points at production
-  (guarded by config; Step 54 makes this fully reproducible).
+  disposable local test DB only (`*_test` name enforced), migrations applied
+  first, tables truncated before/after each run (Step 54). Non-local, prod-like
+  or production (`NODE_ENV=production`) configuration is refused before any
+  connection is made — see `scripts/integration-test-db.js`.
 - **E2E tests** (`test/**/*.e2e-spec.ts`, `npm run test:e2e`): full HTTP app,
   contract + security. Not part of unit coverage.
 
