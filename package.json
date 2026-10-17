@@ -23,7 +23,7 @@
     "validate": "npm run lint:check && npm run format:check && npm run typecheck && npm run test && npm run test:e2e && npm run build",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:cov": "jest --coverage --coverageReporters=text,json-summary && node scripts/check-domain-coverage.js",
+    "test:cov": "jest --coverage --coverageReporters=text --coverageReporters=json-summary && node scripts/check-domain-coverage.js",
     "test:cov:unit": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
