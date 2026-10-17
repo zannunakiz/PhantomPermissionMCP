@@ -20,7 +20,6 @@ import { INestApplication } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
-import { digestKey } from '../src/auth/api-key';
 import {
   ACCESS_MODEL_REPOSITORY,
   API_KEY_REPOSITORY,
@@ -37,6 +36,7 @@ import {
   redactValue,
   scrubSecretStrings,
 } from '../src/common/logging/redact';
+import { makeApiKey } from './fixtures/factories';
 
 const PEPPER = 'e2e-pepper-55';
 const ALL_SCOPES = [
@@ -60,17 +60,13 @@ function keyRecord(
   overrides: Partial<ApiKeyRecord> = {},
 ): ApiKeyRecord {
   return {
+    ...makeApiKey({
+      raw,
+      tenantId,
+      scopes,
+      pepper: PEPPER,
+    }).record,
     id: `key_${raw.slice(4, 8)}_${tenantId}`,
-    tenantId,
-    keyPrefix: raw.slice(0, 12),
-    keyDigest: digestKey(raw, PEPPER),
-    scopes,
-    status: 'ACTIVE',
-    expiresAt: null,
-    revokedAt: null,
-    lastUsedAt: null,
-    createdAt: new Date(0),
-    updatedAt: new Date(0),
     ...overrides,
   };
 }
