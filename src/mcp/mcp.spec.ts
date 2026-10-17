@@ -1000,10 +1000,10 @@ describe('mcp protocol compatibility (step 47)', () => {
       expect(ok.structuredContent.valid).toBe(true);
 
       // Invalid arguments rejected (isError result, no crash).
-      const bad = (await client.callTool({
+      const bad = await client.callTool({
         name: 'validate_access_model',
-        arguments: {} as Record<string, unknown>,
-      })) as { isError?: boolean };
+        arguments: {},
+      });
       expect(bad.isError).toBe(true);
 
       // Protocol error: unknown tool rejected, server stays alive.

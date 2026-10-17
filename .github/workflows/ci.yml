@@ -1,0 +1,184 @@
+# Step 59 — baseline CI quality gates.
+#
+# Self-contained: every job installs from the lockfile and runs the same
+# scripts developers run locally (`npm run …`). No paid secrets required:
+# npm audit and GitHub's built-in dependency graph are free for public
+# repos. No source-control operations (no pushes, tags, or releases).
+#
+# Jobs:
+#   quality      — lint + format + typecheck
+#   unit         — Jest unit tests with coverage thresholds + domain coverage
+#   e2e          — full e2e suite (no external services needed)
+#   integration  — Prisma repository tests against a PostgreSQL service
+#   audit        — free dependency vulnerability audit (high+ fails the build)
+#   docker       — production image builds from a clean context
+#   api-scenarios— Newman runs of the Postman collection when it exists
+#                  (added in Step 60; job is a no-op until then)
+
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read # least privilege — CI never writes to the repository
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+  # Deterministic, non-secret defaults for test jobs (never real secrets).
+  API_KEY_PEPPER: ci-only-pepper-not-a-real-secret
+
+jobs:
+  quality:
+    name: Lint, format, typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run lint:check
+      - run: npm run format:check
+      - run: npm run prisma:validate
+      - run: npm run typecheck
+
+  unit:
+    name: Unit tests + coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run prisma:generate
+      # test:cov enforces the jest coverageThreshold gates and runs
+      # scripts/check-domain-coverage.js on the json-summary output.
+      - run: npm run test:cov
+
+  e2e:
+    name: E2E tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run prisma:generate
+      - run: npm run build
+      - run: npm run test:e2e
+
+  integration:
+    name: Integration tests (PostgreSQL)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: phantom
+          POSTGRES_PASSWORD: phantom
+          POSTGRES_DB: phantom_permission_test
+        ports:
+          - 5432:5432 # scripts/integration-test-db.js requires localhost
+        options: >-
+          --health-cmd "pg_isready -U phantom -d phantom_permission_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql://phantom:phantom@localhost:5432/phantom_permission_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run prisma:generate
+      # Global setup applies migrations and truncates tables; teardown closes
+      # the pool — both enforced by scripts/integration-test-db.js.
+      - run: npm run test:integration
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      # Free advisory audit (no token). High+ vulnerabilities fail the build;
+      # lower severities stay visible in the log without blocking.
+      - run: npm audit --audit-level=high
+      - name: Report outdated dependencies (non-blocking)
+        run: npm outdated --long || true
+
+  docker:
+    name: Production image build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false # build only — CI never pushes images
+          tags: phantom-permission-mcp:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  api-scenarios:
+    name: Postman/Newman scenarios
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run prisma:generate
+      - run: npm run build
+      # The Postman collection lands in Step 60. Until then this step is a
+      # clean no-op; afterwards it runs the same documented commands:
+      #   app on :3000, migrate + seed, then newman against the collection.
+      - name: Check for Postman collection
+        id: postman
+        run: |
+          if ls postman/*.postman_collection.json >/dev/null 2>&1; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "No Postman collection yet (Step 60) — skipping Newman."
+          fi
+      - name: Install Newman
+        if: steps.postman.outputs.present == 'true'
+        run: npm install -g newman
+      - name: Start app for scenarios
+        if: steps.postman.outputs.present == 'true'
+        run: |
+          docker compose up -d --build
+          docker compose run --rm migrate
+          docker compose run --rm seed
+          npx wait-on http://localhost:3000/health/live -t 120000
+      - name: Run Newman collection
+        if: steps.postman.outputs.present == 'true'
+        run: newman run postman/*.postman_collection.json --color on
+      - name: Tear down
+        if: always() && steps.postman.outputs.present == 'true'
+        run: docker compose down -v
+
