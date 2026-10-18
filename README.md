@@ -1,129 +1,229 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# PhantomPermissionMCP
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Self-hostable, **read-only RBAC change-impact analysis** backend exposed through REST (`/api/v1`) and MCP tools. A tenant submits a versioned access model (roles, permissions, inheritance, assignments) plus proposed changes; the service validates, simulates deterministically on an immutable copy, and returns before/after impact with explainable risk findings.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+> The service **never applies changes** to a customer's live system. It analyses supplied copies only. No live enforcement, no provisioning back, no outbound calls.
 
-## Description
+## Prerequisites
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+- Node.js `>=22`, npm `>=10`
+- Docker + Docker Compose (for Postgres / full local stack)
+- No paid services, no hosted DB, no external AI required.
 
-## Project setup
+## Quick start (local)
 
 ```bash
-$ npm install
+npm ci
+npm run prisma:generate
+npm run build
+
+# Option A — Docker (app + PostgreSQL, health-gated):
+docker compose up -d --build
+docker compose run --rm migrate   # prisma migrate deploy (idempotent)
+docker compose run --rm seed      # fictional demo data (idempotent)
+curl http://localhost:3000/health/ready
+
+# Option B — host Node + local Postgres:
+# set DATABASE_URL in .env (see .env.example), then:
+npm run db:deploy   # or: npm run prisma:migrate:dev
+npm run db:seed
+npm run start:dev
 ```
 
-## Compile and run the project
+Verify: `GET /health/live` (liveness), `GET /health/ready` (DB check), Swagger at `GET /docs`, OpenAPI JSON at `GET /docs-json`.
+
+## Environment configuration
+
+Copy `.env.example` to `.env`. Key variables:
+
+| Variable | Default / required |
+| --- | --- |
+| `NODE_ENV` | `development` (`production` refuses placeholder secrets) |
+| `PORT` | `3000` |
+| `DATABASE_URL` | Local default outside production; **required** in production |
+| `API_KEY_PEPPER` | Placeholder locally; **required, non-placeholder** in production |
+| `CORS_ORIGINS` | Comma-separated allowlist; empty = deny browser cross-origin |
+| `LOG_LEVEL` | `debug \| info \| warn \| error` |
+| `REQUEST_BODY_LIMIT` | e.g. `1mb` |
+| `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX` | e.g. `60000` / `100` |
+| `METRICS_ENABLED` | `true \| false` |
+
+Secrets are never logged; config errors print redacted messages and exit non-zero.
+
+## Migrations and seeding
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+npm run prisma:validate        # schema syntax check
+npm run prisma:generate        # generate client (Prisma 7: not auto on install)
+npm run prisma:migrate:dev     # local dev migration
+npm run db:deploy              # prisma migrate deploy (prod/CI)
+npm run db:seed                # idempotent fictional demo data
+npm run db:reset               # migrate reset --force --skip-seed + seed (destructive)
 ```
 
-## Run tests
+Seed creates tenant `Acme Demo` (`tnt_demo_acme`), model `billing-demo` (`mdl_demo_billing`), and a `DUMMY-DO-NOT-USE` key digest that can **never** authenticate. Issue real keys via provisioning below.
+
+
+## Tenant and API-key provisioning
+
+Keys are `ppk_<secret>`, bound to one tenant with scopes. Only an HMAC-SHA-256 digest (pepper from `API_KEY_PEPPER`) is persisted; the raw key is shown **once** at issuance and never logged.
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+npm run tenant:create -- tenant:create --name "Acme"
+npm run key:issue -- key:issue --tenant <tnt_id> --scopes models:read,models:write,simulations:run,simulations:read,exports:read,audit:read
+npm run key:revoke -- key:revoke --tenant <tnt_id> --key-id <key_id>
+npm run key:rotate -- key:rotate --tenant <tnt_id> --key-id <key_id> --scopes models:read
 ```
 
-## Deployment
+Scopes (least privilege, checked per use case): `models:read models:write simulations:run simulations:read exports:read audit:read`. Every request sends `Authorization: Bearer ppk_...`. All resources are tenant-scoped; cross-tenant access returns `tenant_forbidden`.
 
-### Docker Compose (local)
+## REST API (base `/api/v1`)
 
-A complete local stack (app + PostgreSQL) runs with no paid services:
+| Method and path | Purpose |
+| --- | --- |
+| `POST /api/v1/models` | Validate + create access model |
+| `GET /api/v1/models?page=&pageSize=` | List models (paginated) |
+| `GET /api/v1/models/{id}` | Get model with versions |
+| `POST /api/v1/models/{id}/versions` | Append immutable version (`expectedVersion` or `If-Match` ETag; `Idempotency-Key` supported) |
+| `GET /api/v1/models/{id}/compare?from=&to=` | Compare two versions |
+| `POST /api/v1/simulations` | Run deterministic simulation (`Idempotency-Key` supported) |
+| `GET /api/v1/simulations/{id}` | Get simulation |
+| `GET /api/v1/simulations/{id}/report` | Paginated impact report |
+| `GET /api/v1/simulations/{id}/export?format=json\|csv` | Machine-readable export |
+| `GET /api/v1/audit-events` | Audit history (scope `audit:read`) |
+
+Conventions: error envelope `{ error: { code, message, status, details, requestId } }` plus `x-request-id` header; pagination `{ data, page: { page, pageSize, total } }`; version reads return `ETag: "<contentHash>"`; stale writes fail `409 conflict_version`; v1 limits in `docs/api/v1-contract.md`.
+
+Example — create a model:
 
 ```bash
-$ docker compose up -d --build   # build image, start db + app (health-gated)
-$ docker compose run --rm migrate  # apply Prisma migrations (idempotent)
-$ docker compose run --rm seed     # seed fictional demo data (idempotent)
-$ curl http://localhost:3000/health/ready   # {"status":"ok","database":"up"}
+curl -X POST http://localhost:3000/api/v1/models \
+  -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
+  -d '{"name":"billing-rbac","roles":[{"id":"viewer","name":"viewer"}],"permissions":[{"id":"invoice:read","value":"invoice:read"}],"bindings":[{"roleId":"viewer","permissionId":"invoice:read"}],"inheritance":[],"assignments":[]}'
 ```
 
-Reset everything (destructive — drops the database volume):
+Example — simulate a grant:
 
 ```bash
-$ docker compose down -v
+curl -X POST http://localhost:3000/api/v1/simulations \
+  -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
+  -H "Idempotency-Key: sim-001" \
+  -d '{"modelId":"mdl_demo_billing","baseVersion":1,"operations":[{"type":"grant_permission","roleId":"viewer","permissionId":"invoice:refund"}]}'
 ```
 
-Optional monitoring (Prometheus + Grafana, disabled by default):
+Full contract: `docs/api/v1-contract.md`, errors: `docs/api/errors.md`.
+
+## Swagger / OpenAPI
+
+- Local UI: `GET /docs` ... JSON: `GET /docs-json`
+- Committed snapshot: `docs/openapi.json`
+- Regenerate: `npm run docs:openapi`
+
+## MCP client setup
+
+Five tools, same use cases as REST: `validate_access_model`, `simulate_permission_change`, `explain_access_change`, `find_privilege_escalation`, `compare_access_models`.
+
+- stdio entrypoint: `npm run mcp:serve` (local trust — any OS user able to launch the process can use the pipe, so every protected tool still requires an `apiKey` argument)
+- Smoke tests: `npm run mcp:smoke` and `npm run mcp:stdio-smoke`
+- MCP never accepts a caller-supplied tenant id — identity derives from the authenticated caller.
+
+## Docker
 
 ```bash
-$ docker compose -f docker-compose.monitoring.yml --profile monitoring up -d
+docker build -t phantom-permission-mcp .   # production image (node:22-alpine, non-root)
+docker compose up -d --build               # db + app (health-gated)
+docker compose run --rm migrate            # apply migrations
+docker compose run --rm seed               # seed demo data
+docker compose down -v                     # full reset (drops pgdata volume)
 ```
 
-Configuration comes from environment variables (see `.env.example`); safe
-local defaults are built into `docker-compose.yml`. Set `API_KEY_PEPPER` in
-a local `.env` for any shared environment — the app refuses placeholder
-peppers in production mode. `migrate`/`seed` are one-shot services under the
-`tools` profile and never start with plain `up`.
+`migrate`/`seed` are one-shot `tools`-profile services; plain `up` never runs them. Host Postgres port defaults to `5433`.
 
-### Production
+## Monitoring
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+Optional local stack (app works fully without it): Prometheus scrapes `GET /metrics` (disable with `METRICS_ENABLED=false`).
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+npm run start:dev   # app on :3000 first
+docker compose -f docker-compose.monitoring.yml --profile monitoring up -d
+# Prometheus http://localhost:9090 ... Grafana http://localhost:3001 (admin/admin)
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+Details: `docs/monitoring.md`. Health: `GET /health/live`, `GET /health/ready`.
 
-## Resources
 
-Check out a few resources that may come in handy when working with NestJS:
+## Tests
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+```bash
+npm test                    # unit (Jest, coverage gates via test:cov)
+npm run test:cov            # coverage + domain-coverage gate
+npm run test:e2e            # e2e contract/security suite (no external services)
+npm run test:integration    # Prisma repo tests — needs Postgres on localhost:5432
+npm run lint:check && npm run format:check && npm run typecheck && npm run build
+npm run validate            # lint + format + typecheck + test + e2e + build
+```
 
-## Support
+CI (`.github/workflows/ci.yml`) runs quality, unit+coverage, e2e, integration (Postgres service), `npm audit` (high+ fails), Docker build, and Newman scenarios — no paid secrets.
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+## Postman / Newman
 
-## Stay in touch
+- `postman/PhantomPermissionMCP-API.postman_collection.json` — every public route with auth headers, examples, expectations
+- `postman/PhantomPermissionMCP-Scenarios.postman_collection.json` — lifecycle + negatives (validation, auth, scope denial, tenant isolation, version conflicts, idempotency, diffs, reports, exports, pagination, rate limits, audit)
+- `postman/PhantomPermissionMCP-Local.postman_environment.json` — `baseUrl`, `api_key`, `api_key_readonly` (no real keys committed)
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+```bash
+npx newman run postman/PhantomPermissionMCP-API.postman_collection.json \
+  --env-var baseUrl=http://localhost:3000 --env-var api_key="$API_KEY"
+npx newman run postman/PhantomPermissionMCP-Scenarios.postman_collection.json \
+  --env-var baseUrl=http://localhost:3000 --env-var api_key="$API_KEY" \
+  --env-var api_key_readonly="$RO_KEY"
+```
 
-## License
+In CI the keys are issued live via `provision.cli.js key:issue` (the seed demo key is a dummy digest); the `run_rate_limit` scenario stays opt-in so the shared fixed window does not 429 later steps.
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+## Security model
+
+- Read-only analysis: no enforcement path, no sync-back, no outbound HTTP (SSRF surface: none).
+- Tenant isolation on every query; `tenant_forbidden` on cross-tenant access.
+- API keys: HMAC-SHA-256 digest + pepper, prefix `ppk_`, shown once, revocable/expirable, scoped per use case (`forbidden_scope` on denial).
+- Idempotency-Key scoped to (tenant, endpoint); same key + different payload gives `409 idempotency_conflict`.
+- Immutable model versions with `expectedVersion`/`If-Match` concurrency give `409 conflict_version`.
+- Append-only audit log, never containing raw keys. CORS allowlist, JSON size limits, rate limiting, generic 5xx in production.
+
+See `docs/security/threat-model.md`, `docs/architecture/overview.md`.
+
+## Architecture
+
+```text
+REST (/api/v1) --\
+                  +--> Application use cases --> Domain engine (pure, deterministic)
+MCP (5 tools) ---/         |                        + Persistence adapters (Prisma/Postgres)
+                           +--> Audit log (append-only)
+```
+
+Deterministic, immutable-where-practical domain engine with no NestJS/HTTP/MCP/DB dependencies. Layering, vocabulary, identifiers: `docs/architecture/overview.md`; ADRs: `docs/architecture/decisions.md`; domain contracts: `docs/domain/contracts.md`.
+
+## Known limitations (v1)
+
+- RBAC + inheritance only — no ABAC/ReBAC, no policy language beyond roles/permissions.
+- Not an IdP: no login, sessions, user directory, or live authorization decisions.
+- No background workers, queues, Redis, or external services.
+- Simulation inline subject lists cap at 500 added+removed (remainder via paged report); export rows cap 50000 (CSV); model size limits in `docs/api/v1-contract.md`.
+- Rate limiting is in-memory fixed-window (not distributed); `run_rate_limit` Newman scenario is opt-in.
+- Monitoring stack is local-dev only; never expose `/metrics` publicly without auth.
+- Integration tests and Docker/Newman smoke checks require a local Postgres/Docker daemon where available (CI provides them).
+
+## Troubleshooting
+
+| Symptom | Fix |
+| --- | --- |
+| `prisma generate` types missing / client errors | Run `npm run prisma:generate` (Prisma 7 does not generate on install) |
+| DB connection refused | Start Postgres (`docker compose up -d db`) and check `DATABASE_URL` |
+| `production` refuses to start | Set real `DATABASE_URL` + non-placeholder `API_KEY_PEPPER` |
+| `401 unauthorized` | Missing/malformed `Authorization: Bearer ppk_...`, revoked/expired key |
+| `403 forbidden_scope` / `tenant_forbidden` | Key lacks scope or resource belongs to another tenant |
+| `409 conflict_version` | Stale `expectedVersion`/ETag — refetch latest version |
+| `409 idempotency_conflict` | Same `Idempotency-Key` with a different payload — use a fresh key |
+| `429 rate_limited` | Back off; check `RATE_LIMIT_*` settings |
+| Port clash on 5432 | Compose maps host `5433` by default (`POSTGRES_PORT`) |
+
