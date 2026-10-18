@@ -98,6 +98,7 @@ Every persisted resource is tenant-scoped. REST and MCP reuse the same applicati
 | Containers | Docker (node:22-alpine, non-root) + Compose | `Dockerfile`, `docker-compose.yml` |
 | Monitoring | Prometheus + Grafana (optional) | `docker-compose.monitoring.yml`, `monitoring/` |
 | API testing | Postman + Newman 6 | `postman/` collections and environment |
+| CI | GitHub Actions | `.github/workflows/ci.yml`, no paid secrets |
 
 ## 4. Architecture
 
@@ -173,6 +174,30 @@ src/
   domain/                 # PURE engine: validate, cycles, resolve, apply, impact, risk rules
   models/                 # access-model use cases + REST controllers
   simulations/            # simulation/report/export use cases + controllers
+  auth/                   # API-key guard/service, scopes, provision.cli.ts
+  tenancy/                # tenant context + scoping guards
+  audit/                  # append-only audit log
+  persistence/            # Prisma service + repositories wiring
+  repositories/           # Prisma repository adapters
+  common/                 # error envelope, HTTP guards, logging, pagination
+  config/                 # env validation (never logs secrets)
+  health/                 # GET /health/live, GET /health/ready
+  metrics/                # GET /metrics (Prometheus text)
+  tracing/                # trace context + middleware
+  mcp/                    # 5 MCP tools + transport service
+  docs/                   # Swagger setup + snapshot writer
+prisma/
+  schema.prisma           # tenants, keys, models, versions, simulations, audit, idempotency
+  migrations/             # initial + feature migrations
+  seed.ts                 # idempotent fictional demo data
+test/                     # e2e specs + fixtures + Jest configs
+scripts/                  # OpenAPI, MCP smoke, and integration DB helpers
+postman/                  # API/scenario collections + local environment
+docs/                     # architecture, API, domain, engineering, security, OpenAPI
+monitoring/               # Prometheus + Grafana provisioning
+.github/workflows/ci.yml  # quality, tests, audit, Docker, Newman
+Dockerfile / Compose files
+```
 
 ## 6. Prerequisites
 
@@ -257,7 +282,21 @@ API keys look like `ppk_<random>`, are bound to exactly one tenant, and carry a 
 ```bash
 # Create a tenant
 npm run tenant:create -- tenant:create --name "Acme" [--id tnt_acme]
+```
 
+Issue and manage tenant-scoped API keys:
+
+```bash
+# Save the printed ppk_... immediately; it is shown once.
+npm run key:issue -- key:issue --tenant "$TENANT_ID" \
+  --scopes models:read,models:write,simulations:run,simulations:read,exports:read,audit:read \
+  [--expires 2027-01-01T00:00:00.000Z]
+
+npm run key:revoke -- key:revoke --tenant "$TENANT_ID" --key-id "$KEY_ID"
+npm run key:rotate -- key:rotate --tenant "$TENANT_ID" --key-id "$KEY_ID" [--scopes models:read]
+```
+
+Available scopes: `models:read`, `models:write`, `simulations:run`, `simulations:read`, `exports:read`, and `audit:read`. Every REST call sends `Authorization: Bearer ppk_...`. MCP stdio calls pass the same key as the `apiKey` tool argument. Cross-tenant access returns `tenant_forbidden`; missing scopes return `forbidden_scope`.
 
 ## 11. REST API Reference
 
@@ -321,6 +360,17 @@ curl "http://localhost:3000/api/v1/simulations/sim_.../report?page=1&pageSize=50
 
 curl "http://localhost:3000/api/v1/simulations/sim_.../export?format=csv" \
   -H "Authorization: Bearer $API_KEY" -o report.csv
+```
+
+Compare model versions and check audit history:
+
+```bash
+curl "http://localhost:3000/api/v1/models/mdl_demo_billing/compare?from=1&to=2" \
+  -H "Authorization: Bearer $API_KEY"
+
+curl "http://localhost:3000/api/v1/audit-events?page=1&pageSize=20" \
+  -H "Authorization: Bearer $API_KEY"
+```
 
 ## 13. MCP Integration
 
@@ -437,14 +487,6 @@ Permissions are least-privilege (`contents: read`); CI never writes to the repos
 
 Threat model and rationale: `docs/security/threat-model.md`, `docs/architecture/overview.md`.
 
-
-```
-
-Compare versions and check audit history:
-
-```bash
-curl "http://localhost:3000/api/v1/models/mdl_demo_billing/compare?from=1&to=2" \
-
 ## 21. Limits and Known Limitations
 
 Enforced v1 limits (see `docs/api/v1-contract.md`): roles <= 500, permissions <= 2000, bindings <= 10000, edges <= 2000, assignments <= 10000, subjects <= 5000, inheritance depth <= 25, operations per simulation <= 200, JSON body <= 1 MiB, report items per page <= 200, export rows <= 50000 (CSV), inline simulation summary <= 500 added+removed subjects (remainder via paged report).
@@ -484,49 +526,8 @@ MIT — see [LICENSE](LICENSE).
 
 ## 25. Credits
 
-Crafted and maintained by [4SRG](https://github.com/zannunakiz).
-
-  -H "Authorization: Bearer $API_KEY"
-
-curl "http://localhost:3000/api/v1/audit-events?page=1&pageSize=20" \
-  -H "Authorization: Bearer $API_KEY"
-```
-
-# Issue a key (save the printed ppk_... immediately — it is shown once)
-npm run key:issue -- key:issue --tenant <tnt_id> \
-  --scopes models:read,models:write,simulations:run,simulations:read,exports:read,audit:read \
-  [--expires 2027-01-01T00:00:00.000Z]
-
-# Revoke / rotate
-npm run key:revoke -- key:revoke --tenant <tnt_id> --key-id <key_id>
-npm run key:rotate -- key:rotate --tenant <tnt_id> --key-id <key_id> [--scopes models:read]
-```
-
-Available scopes: `models:read`, `models:write`, `simulations:run`, `simulations:read`, `exports:read`, `audit:read`. Every REST call sends `Authorization: Bearer ppk_...`. MCP stdio calls pass the same key as the `apiKey` tool argument. Cross-tenant access returns `tenant_forbidden`; missing scopes return `forbidden_scope`.
-
-  auth/                   # API-key guard/service, scopes, provision.cli.ts
-  tenancy/                # tenant context + scoping guards
-  audit/                  # append-only audit log
-  persistence/            # Prisma service + repositories wiring
-  repositories/           # Prisma repository adapters
-  common/                 # error envelope, http guards, logging, pagination
-  config/                 # env validation (never logs secrets)
-  health/                 # GET /health/live, GET /health/ready
-  metrics/                # GET /metrics (Prometheus text)
-  tracing/                # trace-context + middleware
-  mcp/                    # 5 MCP tools + transport service
-  docs/                   # Swagger setup + snapshot writer
-prisma/
-  schema.prisma           # tenants, keys, models, versions, simulations, audit, idempotency
-  migrations/             # 0000_init + 4 feature migrations
-  seed.ts                 # idempotent fictional demo data
-test/                     # 13 e2e specs + fixtures + jest configs
-scripts/                  # export-openapi, mcp-serve/smoke/stdio-smoke, integration DB helpers
-postman/                  # API collection, scenario collection, local environment
-docs/                     # architecture, api contract, domain, engineering, security, openapi.json
-monitoring/               # prometheus.yml, Grafana dashboard provisioning
-.github/workflows/ci.yml  # quality, unit, e2e, integration, audit, docker, newman
-Dockerfile / docker-compose.yml / docker-compose.monitoring.yml
-```
-
-| CI | GitHub Actions | `.github/workflows/ci.yml`, no paid secrets |
+<p align="center">
+  <br/>
+  Built by <b><a href="https://github.com/zannunakiz">4SRG</a></b><br/>
+  <sub>Deep dives: <a href="./docs/architecture/overview.md">Architecture</a> · <a href="./docs/engineering/repositories.md">Engineering</a></sub>
+</p>
