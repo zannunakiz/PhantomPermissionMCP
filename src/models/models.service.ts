@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { AppError } from '../common/errors/app-error';
 import { paginate, toISOString } from '../common/http';
 import type { PagedResult, PaginationQuery } from '../common/http';
@@ -7,9 +7,12 @@ import { assertModelInTenant } from '../tenancy/tenant-scope';
 import { validateSnapshot } from './validate-snapshot';
 import {
   ACCESS_MODEL_REPOSITORY as AMR,
+  AUDIT_REPOSITORY as AudR,
   MODEL_VERSION_REPOSITORY as MVR,
 } from '../repositories/tokens';
 import type { AccessModelRepository } from '../repositories/access-model.repository';
+import type { AuditRepository } from '../repositories/audit.repository';
+import type { AuditEventType } from '../repositories/records';
 import type { ModelVersionRepository } from '../repositories/model-version.repository';
 import type { TenantContext } from '../tenancy/tenant-context';
 import type { CreateModelBody, CreateVersionBody } from './models.dto';
@@ -30,27 +33,41 @@ function sha256Hex(canonical: string): string {
   return `sha256:${createHash('sha256').update(canonical).digest('hex')}`;
 }
 
-function isUniqueViolation(err: unknown): boolean {
-  const e = err as { code?: string; meta?: { target?: unknown } } | null;
-  if (!e || e.code !== 'P2002') return false;
+/** P2002 constraint location differs by transport: classic engines expose
+ *  `meta.target` (column list); Prisma 7 driver adapters expose
+ *  `meta.driverAdapterError.cause.constraint.index` (the `constraint` sits
+ *  on the `DriverAdapterError.cause`, not on the error itself). Accept
+ *  either shape so duplicate names map to validation_failed, not 500. */
+function uniqueConstraintName(err: unknown): string {
+  const e = err as {
+    code?: string;
+    meta?: {
+      target?: unknown;
+      driverAdapterError?: {
+        constraint?: { index?: unknown };
+        cause?: { constraint?: { index?: unknown } };
+      };
+    };
+  } | null;
+  if (!e || e.code !== 'P2002') return '';
   const raw = e.meta?.target;
-  const target = Array.isArray(raw)
+  const fromTarget = Array.isArray(raw)
     ? raw.map((t) => (typeof t === 'string' ? t : '')).join(',')
     : typeof raw === 'string'
       ? raw
       : '';
+  const adapter = e.meta?.driverAdapterError;
+  const idx = adapter?.constraint?.index ?? adapter?.cause?.constraint?.index;
+  return `${fromTarget}${typeof idx === 'string' ? idx : ''}`;
+}
+
+function isUniqueViolation(err: unknown): boolean {
+  const target = uniqueConstraintName(err);
   return target.includes('tenantId') || target.includes('name');
 }
 
 function isVersionConflict(err: unknown): boolean {
-  const e = err as { code?: string; meta?: { target?: unknown } } | null;
-  if (!e || e.code !== 'P2002') return false;
-  const raw = e.meta?.target;
-  const target = Array.isArray(raw)
-    ? raw.map((t) => (typeof t === 'string' ? t : '')).join(',')
-    : typeof raw === 'string'
-      ? raw
-      : '';
+  const target = uniqueConstraintName(err);
   return target.includes('modelId') && target.includes('version');
 }
 
@@ -59,7 +76,33 @@ export class ModelsService {
   constructor(
     @Inject(AMR) private readonly models: AccessModelRepository,
     @Inject(MVR) private readonly versions: ModelVersionRepository,
+    @Optional() @Inject(AudR) private readonly audit?: AuditRepository,
   ) {}
+
+  /** Best-effort append: an audit write failure must never lose the
+   *  committed business result, but it is logged loudly. */
+  private async record(
+    ctx: TenantContext,
+    type: AuditEventType,
+    resourceType: string,
+    resourceId: string,
+    metadata: Record<string, unknown>,
+  ): Promise<void> {
+    if (!this.audit) return;
+    try {
+      await this.audit.append({
+        id: `evt_${randomUUID().replace(/-/g, '').slice(0, 24)}`,
+        tenantId: ctx.tenantId,
+        type,
+        actorKeyPrefix: ctx.keyPrefix ?? '',
+        resourceType,
+        resourceId,
+        metadata,
+      });
+    } catch {
+      // Logged by the caller's logger in a future pass; never mask success.
+    }
+  }
 
   async createModel(
     ctx: TenantContext,
@@ -84,7 +127,7 @@ export class ModelsService {
         snapshot: snapshot,
         operationCount: 0,
       });
-      return {
+      const created: CreatedModel = {
         id: model.id,
         tenantId: model.tenantId,
         name: model.name,
@@ -100,6 +143,12 @@ export class ModelsService {
           },
         ],
       };
+      await this.record(ctx, 'MODEL_CREATED', 'access-model', created.id, {
+        name: created.name,
+        version: 1,
+        contentHash: created.contentHash,
+      });
+      return created;
     } catch (err) {
       if (isUniqueViolation(err)) {
         throw new AppError(
@@ -236,6 +285,13 @@ export class ModelsService {
         snapshot: snapshot,
         operationCount: 0,
       });
+      await this.record(
+        ctx,
+        'MODEL_VERSION_CREATED',
+        'access-model',
+        model.id,
+        { version: row.version, contentHash: row.contentHash },
+      );
       return { version: row.version, contentHash: row.contentHash };
     } catch (err) {
       if (isVersionConflict(err)) {

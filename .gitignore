@@ -58,3 +58,6 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 # Prompt clearance for agents (4SRG bit agents by Richky)
 Prompt.md
 prompt-paste.txt
+
+# Uneeded Reference
+README-reference.md
