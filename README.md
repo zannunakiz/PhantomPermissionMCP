@@ -2,9 +2,40 @@
   <img src="./public/PhantomMCP-Logo.png" width="180" alt="PhantomPermissionMCP logo" />
 </p>
 
-# PhantomPermissionMCP
+<h1 align="center">PhantomPermissionMCP</h1>
 
-Self-hostable, read-only **RBAC change-impact analysis** backend exposed through REST (`/api/v1`) and MCP tools. Submit a versioned access model plus proposed changes, get back a deterministic before/after impact simulation with explainable risk findings.
+<p align="center">
+  A self-hostable, read-only <b>RBAC change-impact analysis</b> backend exposed through REST and MCP.<br/>
+  Simulate proposed access-model changes and inspect deterministic, explainable risk findings.
+</p>
+
+<p align="center">
+  <a href="https://nodejs.org"><img alt="Node.js 22" src="https://img.shields.io/badge/Node.js_22-339933?style=for-the-badge&logo=nodedotjs&logoColor=white"/></a>
+  <a href="https://www.typescriptlang.org"><img alt="TypeScript 5" src="https://img.shields.io/badge/TypeScript_5-3178C6?style=for-the-badge&logo=typescript&logoColor=white"/></a>
+  <a href="https://nestjs.com"><img alt="NestJS 11" src="https://img.shields.io/badge/NestJS_11-E0234E?style=for-the-badge&logo=nestjs&logoColor=white"/></a>
+  <a href="https://zod.dev"><img alt="Zod 4" src="https://img.shields.io/badge/Zod_4-3E67B1?style=for-the-badge&logo=zod&logoColor=white"/></a>
+</p>
+
+<p align="center">
+  <a href="https://www.postgresql.org"><img alt="PostgreSQL 17" src="https://img.shields.io/badge/PostgreSQL_17-4169E1?style=for-the-badge&logo=postgresql&logoColor=white"/></a>
+  <a href="https://www.prisma.io"><img alt="Prisma 7" src="https://img.shields.io/badge/Prisma_7-2D3748?style=for-the-badge&logo=prisma&logoColor=white"/></a>
+  <a href="https://modelcontextprotocol.io"><img alt="Model Context Protocol" src="https://img.shields.io/badge/Model_Context_Protocol-5A5A5A?style=for-the-badge"/></a>
+  <a href="https://swagger.io"><img alt="Swagger OpenAPI" src="https://img.shields.io/badge/Swagger_OpenAPI-85EA2D?style=for-the-badge&logo=swagger&logoColor=black"/></a>
+</p>
+
+<p align="center">
+  <a href="https://jestjs.io"><img alt="Jest 30" src="https://img.shields.io/badge/Jest_30-C21325?style=for-the-badge&logo=jest&logoColor=white"/></a>
+  <a href="https://eslint.org"><img alt="ESLint 9" src="https://img.shields.io/badge/ESLint_9-4B32C3?style=for-the-badge&logo=eslint&logoColor=white"/></a>
+  <a href="https://prettier.io"><img alt="Prettier 3" src="https://img.shields.io/badge/Prettier_3-F7B93E?style=for-the-badge&logo=prettier&logoColor=black"/></a>
+  <a href="https://www.docker.com"><img alt="Docker" src="https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white"/></a>
+</p>
+
+<p align="center">
+  <a href="https://prometheus.io"><img alt="Prometheus" src="https://img.shields.io/badge/Prometheus-E6522C?style=for-the-badge&logo=prometheus&logoColor=white"/></a>
+  <a href="https://grafana.com"><img alt="Grafana" src="https://img.shields.io/badge/Grafana-F46800?style=for-the-badge&logo=grafana&logoColor=white"/></a>
+  <a href="https://www.postman.com"><img alt="Postman and Newman 6" src="https://img.shields.io/badge/Postman_%2B_Newman_6-FF6C37?style=for-the-badge&logo=postman&logoColor=white"/></a>
+  <a href="https://github.com/features/actions"><img alt="GitHub Actions" src="https://img.shields.io/badge/GitHub_Actions-2088FF?style=for-the-badge&logo=githubactions&logoColor=white"/></a>
+</p>
 
 > Design principle: the service **never applies changes** to a customer system. It analyses supplied copies only. No live enforcement, no sync-back, no outbound network calls.
 
@@ -63,27 +94,6 @@ Every persisted resource is tenant-scoped. REST and MCP reuse the same applicati
 - GitHub Actions CI with lint, typecheck, tests, audit, Docker build, and Newman.
 
 ## 3. Tech Stack
-
-<p align="center">
-  <a href="https://nodejs.org"><img alt="Node.js 22" src="https://img.shields.io/badge/Node.js_22-339933?style=for-the-badge&logo=nodedotjs&logoColor=white"/></a>
-  <a href="https://www.typescriptlang.org"><img alt="TypeScript 5" src="https://img.shields.io/badge/TypeScript_5-3178C6?style=for-the-badge&logo=typescript&logoColor=white"/></a>
-  <a href="https://nestjs.com"><img alt="NestJS 11" src="https://img.shields.io/badge/NestJS_11-E0234E?style=for-the-badge&logo=nestjs&logoColor=white"/></a>
-  <a href="https://zod.dev"><img alt="Zod 4" src="https://img.shields.io/badge/Zod_4-3E67B1?style=for-the-badge&logo=zod&logoColor=white"/></a>
-</p>
-
-<p align="center">
-  <a href="https://www.postgresql.org"><img alt="PostgreSQL 17" src="https://img.shields.io/badge/PostgreSQL_17-4169E1?style=for-the-badge&logo=postgresql&logoColor=white"/></a>
-  <a href="https://www.prisma.io"><img alt="Prisma 7" src="https://img.shields.io/badge/Prisma_7-2D3748?style=for-the-badge&logo=prisma&logoColor=white"/></a>
-  <a href="https://jestjs.io"><img alt="Jest 30" src="https://img.shields.io/badge/Jest_30-C21325?style=for-the-badge&logo=jest&logoColor=white"/></a>
-  <a href="https://www.docker.com"><img alt="Docker" src="https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white"/></a>
-</p>
-
-<p align="center">
-  <a href="https://prometheus.io"><img alt="Prometheus" src="https://img.shields.io/badge/Prometheus-E6522C?style=for-the-badge&logo=prometheus&logoColor=white"/></a>
-  <a href="https://grafana.com"><img alt="Grafana" src="https://img.shields.io/badge/Grafana-F46800?style=for-the-badge&logo=grafana&logoColor=white"/></a>
-  <a href="https://www.postman.com"><img alt="Postman" src="https://img.shields.io/badge/Postman-FF6C37?style=for-the-badge&logo=postman&logoColor=white"/></a>
-  <a href="https://github.com/features/actions"><img alt="GitHub Actions" src="https://img.shields.io/badge/GitHub_Actions-2088FF?style=for-the-badge&logo=githubactions&logoColor=white"/></a>
-</p>
 
 | Layer | Technology | Notes |
 | --- | --- | --- |
